@@ -1,0 +1,12 @@
+{
+  "name": "webauth-wizardry",
+  "version": "1.0.0",
+  "description": "This repository contains experiments related to authentication and authorization between web server and clients.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
