@@ -1,15 +1,15 @@
 import bodyParser from 'body-parser';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import express, { Request, Response } from 'express';
 import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
+import { assertAuth } from './auth/auth';
 import { DummyDB } from './db/dummyDB';
-import { JWT_COOKIE_NAME, setJwtTokenInCookieMiddleware, assertDecodeToken } from './jwt/jwt';
+import { JWT_COOKIE_NAME, assertDecodeToken, setJwtTokenInCookieMiddleware } from './jwt/jwt';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExtendedRequest } from './types/extendedRequest';
 import { User } from './types/user';
-import cookieParser from 'cookie-parser';
-import { assertAuth } from './auth/auth';
 
 // Loading dotenv
 dotenv.config();
@@ -90,7 +90,9 @@ app.get('/', (req, res) => {
 
 
 // START Email / password
-app.post('/signin', async (req: Request, res, next: ExtendedNextFunction) => {
+// Basic authentication is not needed, it might be useful only when needing some automatic browser auth
+// https://stackoverflow.com/questions/8127635/why-should-i-use-http-basic-authentication-instead-of-username-and-password-post
+app.post('/signin', async (req: ExtendedRequest, res, next: ExtendedNextFunction) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
