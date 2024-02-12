@@ -3,3 +3,6 @@ node_modules
 
 # Env files
 .env
+
+# Dist
+dist
