@@ -3,7 +3,7 @@
  */
 export class ExtendedError extends Error {
     constructor(public readonly statusCode: number, responseMessage?: string) {
-        super(responseMessage || "Bad request");
+        super(responseMessage || "Unexpected error");
     }
 }
 

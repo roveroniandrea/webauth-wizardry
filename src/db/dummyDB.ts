@@ -1,13 +1,13 @@
 import bcrypt from 'bcrypt';
-import uuid from 'uuid';
+import * as uuid from 'uuid';
 import { User } from '../types/user';
 
-/*
 
-THIS IS A DUMMY REPRESENTATION OF A CUSTOM DB
-
-*/
-
+/**
+ * THIS IS A DUMMY REPRESENTATION OF A CUSTOM DB
+ * 
+ * Feel free to use in production if you hate yourself
+ */
 export module DummyDB {
 
 
