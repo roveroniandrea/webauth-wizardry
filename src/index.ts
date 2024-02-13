@@ -41,6 +41,8 @@ passport.use(new CookieStrategy({
     // This will never throw an error, just null in case the user cannot be extracted for any reason
     const user = await decodeAccessToken(token);
 
+    // TODO: It might also check that the token is not invalidated
+
     done(null, user);
 }));
 
@@ -205,12 +207,26 @@ app.get('/me', (req, res) => {
     res.send(user);
 });
 
+
 // Retrieves info about the current logged user but using a middleware
 // This endpoint requires authentication
 // See also /me route
 app.get('/me/middleware', assertAuthMiddleware(), (req, res) => {
     res.send(req.user);
 });
+
+
+// Performs logout
+app.post('/logout', assertAuthMiddleware(), (req, res) => {
+    // Clear both cookies
+    req.res?.clearCookie(AT_COOKIE_NAME);
+    req.res?.clearCookie(RT_COOKIE_NAME);
+
+    // TODO: Invalidate both cookies
+
+    res.status(200).send("OK");
+});
+
 
 
 // Catching errors
