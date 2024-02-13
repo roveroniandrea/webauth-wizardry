@@ -6,7 +6,7 @@ import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
 import { assertAuth } from './auth/auth';
 import { DummyDB } from './db/dummyDB';
-import { JWT_COOKIE_NAME, assertDecodeToken, setJwtTokenInCookieMiddleware } from './jwt/jwt';
+import { AT_COOKIE_NAME, RT_COOKIE_NAME, decodeAccessToken, decodeRefreshToken, setJwtTokenInCookie, setJwtTokenInCookieMiddleware } from './jwt/jwt';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExtendedRequest } from './types/extendedRequest';
 import { User } from './types/user';
@@ -32,51 +32,90 @@ app.use(cookieParser(COOKIE_PARSER_SECRET));
 // Passport strategies
 // Cookie strategy allows to extract token from cookies
 passport.use(new CookieStrategy({
-    cookieName: JWT_COOKIE_NAME,
+    cookieName: AT_COOKIE_NAME,
     signed: true,
     passReqToCallback: true
 }, async (req: Request, token: string, done: (err: ExtendedError | null, user: User | null) => void) => {
-    try {
-        if (token) {
-            // If there's a token, decode and extract it
-            // This will throw an error if the token is not valid
-            const user = await assertDecodeToken(token);
+    // If there's a token, decode and extract it
+    // This will never throw an error, just null in case the user cannot be extracted for any reason
+    const user = await decodeAccessToken(token);
 
-            // TODO: Check for banning or something else
-
-            done(null, user);
-        }
-        else {
-            // Otherwise no problem, request is not authenticated
-            done(null, null);
-        }
-    }
-    catch (ex) {
-        // This point is reached if the token is invalid in some way
-        // So clear the cookie in any way
-
-        // NOTE: 400 should be the default error to tell FE that something is wrong and should re-authenticate
-        req.res?.clearCookie(JWT_COOKIE_NAME);
-        done(new ExtendedError(400, "Not authenticated"), null);
-    }
+    done(null, user);
 }));
 
 
 // For every request, extract the jwt payload from the cookies and verify it
 app.use((req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
-    // A custom callback is passed in order to allow even unauthenticated request to proceed
-    // This is because some endpoints might not require authentication
-    passport.authenticate("cookie", { session: false }, (err: any, user: User, info: any, status: any) => {
+
+    /*
+
+        A custom callback is passed in order to allow two things:
+        1 - For an unauthenticated request, check if user can be refreshed via refresh token (checking user validity to be reauthenticated, like for example user not banned)
+        2 - Unauthenticated requests can proceed (except for refresh token banned)
+
+        This is because some endpoints might not require authentication
+
+    */
+    passport.authenticate("cookie", { session: false }, async (err: any, user: User | false, info: any, status: any) => {
         // If there's an error, throw it
         if (err) {
             next(err);
             return;
         }
 
-        // For unauthenticated requests (meaning the cookie is absent, not that the token is invalid)
-        // Will have `user` at false, override it to null
-        req.user = user || null;
-        // Proceed with route handler
+        // For unauthenticated requests (meaning the user cannot be recovered from access token) `user` will be at `false`
+        // TODO: This might be converted into a custom strategy or middleware?
+        if (!user) {
+            // If for any reason the user cannot be extracted from access token (missing cookie, jwt invalid)
+            // try refreshing the session
+            const refreshToken: string = req.signedCookies[RT_COOKIE_NAME];
+
+            const userId = refreshToken ? await decodeRefreshToken(refreshToken) : null;
+
+            if (userId) {
+                // If refresh token is valid and thus a userId can be extracted, regenerate both
+                // TODO: It's needed to invalidate this refresh token here
+                // TODO: Also, refresh token validity must be checked in this step
+
+                try {
+                    user = await DummyDB.getUserByUserId(userId);
+                }
+                catch { }
+
+                // TODO: Check if user is not banned or something else
+                if (!user || !req.res) {
+                    // The only code that will return an error is here
+                    // This is because user cannot be reauthenticated with its refresh token for some reason
+                    // So clear both cookies in any way
+
+                    // NOTE: 400 should be the default error to tell FE that something is wrong and should re-authenticate
+                    req.res?.clearCookie(AT_COOKIE_NAME);
+                    req.res?.clearCookie(RT_COOKIE_NAME);
+                    next(new ExtendedError(400, "Not authenticated"));
+                    return;
+                }
+                else {
+                    // Otherwise, set new tokens as cookies
+                    await setJwtTokenInCookie(user, res);
+                }
+            }
+
+            // Here, the user might have been reauthenticated via refresh token or might be totally unauthenticated
+            if (!user) {
+                // if user is not authenticated, clear both cookies in any way
+                req.res?.clearCookie(AT_COOKIE_NAME);
+                req.res?.clearCookie(RT_COOKIE_NAME);
+            }
+        }
+
+        // At this point, if AT was valid, request is authenticated
+        // Otherwise, depends on RT:
+        //      If RT was valid, both tokens have been regenerated and set as cookies
+        //      If RT was not valid or user was banned, both tokens have been cleared
+
+        // Proceed with or without the user
+        req.user = user || undefined;
+
         next();
     })(req, res, next);
 });
@@ -92,6 +131,7 @@ app.get('/', (req, res) => {
 // START Email / password
 // Basic authentication is not needed, it might be useful only when needing some automatic browser auth
 // https://stackoverflow.com/questions/8127635/why-should-i-use-http-basic-authentication-instead-of-username-and-password-post
+// TODO: Signin and signup must be called with no authentication (use custom middleware)
 app.post('/signin', async (req: ExtendedRequest, res, next: ExtendedNextFunction) => {
     const { email, password } = req.body;
 
@@ -119,6 +159,7 @@ app.post('/signin', async (req: ExtendedRequest, res, next: ExtendedNextFunction
 }, setJwtTokenInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
 
 // Register a user
+// TODO: Signin and signup must be called with no authentication (use custom middleware)
 app.post('/signup', async (req: ExtendedRequest, res, next: ExtendedNextFunction) => {
     const { email, password } = req.body;
 
@@ -157,6 +198,7 @@ app.get('/users', async (_, res) => {
 // This endpoint requires authentication
 app.get('/me', (req, res) => {
     // `assertAuth` throws 401 if request is not authorized
+    // TODO: Or might be a middleware?
     const user = assertAuth(req);
 
     res.send(user);
