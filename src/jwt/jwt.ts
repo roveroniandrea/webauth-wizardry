@@ -1,8 +1,7 @@
 import { Response } from 'express';
 import { Jwt, JwtPayload, SignCallback, VerifyErrors, sign, verify } from 'jsonwebtoken';
 import * as uuid from 'uuid';
-import { ExtendedError, ExtendedNextFunction } from '../types/error';
-import { ExtendedRequest } from '../types/extendedRequest';
+import { ExtendedError } from '../types/error';
 import { User } from '../types/user';
 
 /** Name of the cookie where to store the jwt payload */
@@ -11,13 +10,14 @@ export const AT_COOKIE_NAME: string = 'token';
 export const RT_COOKIE_NAME: string = 'rt-token';
 
 /** Access token and jwt payload validity expressed in seconds */
-const AT_EXPIRES_IN_SECONDS: number = 3600;
+const AT_EXPIRES_IN_SECONDS: number = 60 * 10; // 10 minutes
 
 /** Refresh token validity in seconds */
-const RT_EXPIRES_IN_SECONDS: number = 3600 * 24 * 7;
+const RT_EXPIRES_IN_SECONDS: number = 3600 * 24 * 7; // 1 week
 
 
-/** Generates both access and refresh tokens.
+/** 
+ * Generates both access and refresh tokens.
  * Access token can hold some data, while refresh token has no data and is used for just the subject
  */
 async function generateTokens<Data extends { userId: string }>(data: Data, expiresInSeconds: number): Promise<{
@@ -68,6 +68,7 @@ async function generateTokens<Data extends { userId: string }>(data: Data, expir
     };
 }
 
+
 /** 
  * Decodes an encoded access token, checking its validity and the presence of a User in its data.
  * Returns null if a user cannot be extracted from the token
@@ -97,7 +98,10 @@ export async function decodeAccessToken(encoded: string): Promise<User | null> {
     return verified;
 }
 
-/** Decodes a refresh token, returning the userId (subject) it's assigned to */
+
+/** 
+ * Decodes a refresh token, returning the userId (subject) it's assigned to
+ */
 export async function decodeRefreshToken(encoded: string): Promise<string | null> {
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
@@ -122,6 +126,9 @@ export async function decodeRefreshToken(encoded: string): Promise<string | null
 }
 
 
+/**
+ * Generates both access and refresh tokens and sets them as cookies
+ */
 export async function setJwtTokenInCookie(user: User, res: Response): Promise<void> {
     const { accessToken, refreshToken } = await generateTokens(user, AT_EXPIRES_IN_SECONDS);
 
@@ -152,15 +159,4 @@ export async function setJwtTokenInCookie(user: User, res: Response): Promise<vo
         // Cookie is signed to ensure client does not modify it
         signed: true
     });
-}
-
-/** Middleware that puts the `req.user` data into a jwt payload and sets it into a cookie */
-export async function setJwtTokenInCookieMiddleware(req: ExtendedRequest, res: Response, next: ExtendedNextFunction): Promise<void> {
-    if (req.user) {
-        await setJwtTokenInCookie(req.user, res);
-    }
-
-    res.status(200).send("OK");
-
-    next();
 }

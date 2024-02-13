@@ -6,10 +6,11 @@ import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
 import { assertAuth } from './auth/auth';
 import { DummyDB } from './db/dummyDB';
-import { AT_COOKIE_NAME, RT_COOKIE_NAME, decodeAccessToken, decodeRefreshToken, setJwtTokenInCookie, setJwtTokenInCookieMiddleware } from './jwt/jwt';
+import { AT_COOKIE_NAME, RT_COOKIE_NAME, decodeAccessToken, decodeRefreshToken, setJwtTokenInCookie } from './jwt/jwt';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExtendedRequest } from './types/extendedRequest';
 import { User } from './types/user';
+import { assertAuthMiddleware, setJwtTokenInCookieMiddleware } from './auth/middlewares';
 
 // Loading dotenv
 dotenv.config();
@@ -196,12 +197,19 @@ app.get('/users', async (_, res) => {
 
 // Retrieves info about the current logged user
 // This endpoint requires authentication
+// See also /me/middleware route
 app.get('/me', (req, res) => {
     // `assertAuth` throws 401 if request is not authorized
-    // TODO: Or might be a middleware?
     const user = assertAuth(req);
 
     res.send(user);
+});
+
+// Retrieves info about the current logged user but using a middleware
+// This endpoint requires authentication
+// See also /me route
+app.get('/me/middleware', assertAuthMiddleware(), (req, res) => {
+    res.send(req.user);
 });
 
 
