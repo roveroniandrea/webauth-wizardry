@@ -6,3 +6,6 @@ node_modules
 
 # Dist
 dist
+
+# Volumes
+redis-data
