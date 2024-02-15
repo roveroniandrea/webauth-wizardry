@@ -5,12 +5,13 @@ import express, { Request, Response } from 'express';
 import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
 import { assertAuth } from './auth/auth';
+import { assertAuthMiddleware, setJwtTokenInCookieMiddleware } from './auth/middlewares';
 import { DummyDB } from './db/dummyDB';
 import { AT_COOKIE_NAME, RT_COOKIE_NAME, decodeAccessToken, decodeRefreshToken, setJwtTokenInCookie } from './jwt/jwt';
+import { initRedisClient } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExtendedRequest } from './types/extendedRequest';
 import { User } from './types/user';
-import { assertAuthMiddleware, setJwtTokenInCookieMiddleware } from './auth/middlewares';
 
 // Loading dotenv
 dotenv.config();
@@ -43,7 +44,7 @@ passport.use(new CookieStrategy({
 
     // TODO: It might also check that the token is not invalidated
 
-    done(null, user);
+    done(null, user?.data || null);
 }));
 
 
@@ -73,15 +74,15 @@ app.use((req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
             // try refreshing the session
             const refreshToken: string = req.signedCookies[RT_COOKIE_NAME];
 
-            const userId = refreshToken ? await decodeRefreshToken(refreshToken) : null;
+            const decodedRT = refreshToken ? await decodeRefreshToken(refreshToken) : null;
 
-            if (userId) {
+            if (decodedRT?.sub) {
                 // If refresh token is valid and thus a userId can be extracted, regenerate both
                 // TODO: It's needed to invalidate this refresh token here
                 // TODO: Also, refresh token validity must be checked in this step
 
                 try {
-                    user = await DummyDB.getUserByUserId(userId);
+                    user = await DummyDB.getUserByUserId(decodedRT.sub);
                 }
                 catch { }
 
@@ -134,7 +135,7 @@ app.get('/', (req, res) => {
 // START Email / password
 // Basic authentication is not needed, it might be useful only when needing some automatic browser auth
 // https://stackoverflow.com/questions/8127635/why-should-i-use-http-basic-authentication-instead-of-username-and-password-post
-// TODO: Signin and signup must be called with no authentication (use custom middleware)
+// TODO: Signin and signup must be called with no authentication (use custom middleware) or invalidate existing tokens
 app.post('/signin', async (req: ExtendedRequest, res, next: ExtendedNextFunction) => {
     const { email, password } = req.body;
 
@@ -162,7 +163,7 @@ app.post('/signin', async (req: ExtendedRequest, res, next: ExtendedNextFunction
 }, setJwtTokenInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
 
 // Register a user
-// TODO: Signin and signup must be called with no authentication (use custom middleware)
+// TODO: Signin and signup must be called with no authentication (use custom middleware) or invalidate existing tokens
 app.post('/signup', async (req: ExtendedRequest, res, next: ExtendedNextFunction) => {
     const { email, password } = req.body;
 
@@ -241,7 +242,12 @@ app.use((err: Error, req: ExtendedRequest, res: Response, next: ExtendedNextFunc
 });
 
 
-// Start listening
-app.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
-});
+// Init redis client
+initRedisClient()
+    .then(() => {
+        // Start listening
+        app.listen(port, () => {
+            console.log(`Server listening on port ${port}`);
+        });
+    })
+
