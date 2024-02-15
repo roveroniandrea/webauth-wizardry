@@ -1,5 +1,5 @@
 import { NextFunction, Response } from 'express';
-import { setJwtTokensInCookies } from '../jwt/jwt';
+import { clearAndInvalidateJwtTokens, setJwtTokensInCookies } from '../jwt/jwt';
 import { ExtendedNextFunction } from '../types/error';
 import { ExtendedRequest } from '../types/extendedRequest';
 import { assertAuth } from './auth';
@@ -39,7 +39,7 @@ export function assertAuthMiddleware() {
  * Like `clearAndInvalidateJwtTokens` but as a middleware
 */
 export async function clearAndInvalidateJwtTokensMiddleware(req: ExtendedRequest, res: Response, next: ExtendedNextFunction) {
-    await clearAndInvalidateJwtTokensMiddleware(req, res, next);
+    await clearAndInvalidateJwtTokens(req, res);
 
     next();
 }
