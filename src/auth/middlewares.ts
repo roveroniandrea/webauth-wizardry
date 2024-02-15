@@ -1,5 +1,5 @@
 import { NextFunction, Response } from 'express';
-import { setJwtTokenInCookie } from '../jwt/jwt';
+import { setJwtTokensInCookies } from '../jwt/jwt';
 import { ExtendedNextFunction } from '../types/error';
 import { ExtendedRequest } from '../types/extendedRequest';
 import { assertAuth } from './auth';
@@ -7,9 +7,9 @@ import { assertAuth } from './auth';
 /** 
  * Like `setJwtTokenInCookie` but as a middleware that uses `req.user` as input
  */
-export async function setJwtTokenInCookieMiddleware(req: ExtendedRequest, res: Response, next: ExtendedNextFunction): Promise<void> {
+export async function setJwtTokensInCookieMiddleware(req: ExtendedRequest, res: Response, next: ExtendedNextFunction): Promise<void> {
     if (req.user) {
-        await setJwtTokenInCookie(req.user, res);
+        await setJwtTokensInCookies(req.user, res);
     }
 
     res.status(200).send("OK");
@@ -32,4 +32,14 @@ export function assertAuthMiddleware() {
             next(ex);
         }
     }
+}
+
+
+/** 
+ * Like `clearAndInvalidateJwtTokens` but as a middleware
+*/
+export async function clearAndInvalidateJwtTokensMiddleware(req: ExtendedRequest, res: Response, next: ExtendedNextFunction) {
+    await clearAndInvalidateJwtTokensMiddleware(req, res, next);
+
+    next();
 }

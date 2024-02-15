@@ -5,10 +5,10 @@ import express, { Request, Response } from 'express';
 import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
 import { assertAuth } from './auth/auth';
-import { assertAuthMiddleware, setJwtTokenInCookieMiddleware } from './auth/middlewares';
+import { assertAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
 import { DummyDB } from './db/dummyDB';
-import { AT_COOKIE_NAME, RT_COOKIE_NAME, decodeAccessToken, decodeRefreshToken, setJwtTokenInCookie } from './jwt/jwt';
-import { initRedisClient } from './redis/redis';
+import { AT_COOKIE_NAME, RT_COOKIE_NAME, clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
+import { initRedisClient, isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExtendedRequest } from './types/extendedRequest';
 import { User } from './types/user';
@@ -40,11 +40,13 @@ passport.use(new CookieStrategy({
 }, async (req: Request, token: string, done: (err: ExtendedError | null, user: User | null) => void) => {
     // If there's a token, decode and extract it
     // This will never throw an error, just null in case the user cannot be extracted for any reason
-    const user = await decodeAccessToken(token);
+    const decodedAccessToken = await decodeAccessToken(token);
 
-    // TODO: It might also check that the token is not invalidated
+    // Also, check access token validity
+    const accessTokenValid: boolean = decodedAccessToken ? await isAccessTokenValid(decodedAccessToken.jti) : false;
 
-    done(null, user?.data || null);
+    // If access token is present and valid, return the user. Otherwise, access token will be cleared later
+    done(null, (decodedAccessToken?.data && accessTokenValid) ? decodedAccessToken.data : null);
 }));
 
 
@@ -70,55 +72,55 @@ app.use((req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
         // For unauthenticated requests (meaning the user cannot be recovered from access token) `user` will be at `false`
         // TODO: This might be converted into a custom strategy or middleware?
         if (!user) {
-            // If for any reason the user cannot be extracted from access token (missing cookie, jwt invalid)
-            // try refreshing the session
-            const refreshToken: string = req.signedCookies[RT_COOKIE_NAME];
+            // If for any reason the user cannot be extracted from access token (missing cookie, jwt invalid), try refreshing the session
+            const oldRefreshToken: string = req.signedCookies[RT_COOKIE_NAME];
 
-            const decodedRT = refreshToken ? await decodeRefreshToken(refreshToken) : null;
+            // Decode the extracted refresh token and check its validity
+            const decodedOldRefreshToken = oldRefreshToken ? await decodeRefreshToken(oldRefreshToken) : null;
+            const refreshTokenValid: boolean = decodedOldRefreshToken ? await isRefreshTokenValid(decodedOldRefreshToken.jti) : false;
 
-            if (decodedRT?.sub) {
+            if (decodedOldRefreshToken && refreshTokenValid) {
                 // If refresh token is valid and thus a userId can be extracted, regenerate both
-                // TODO: It's needed to invalidate this refresh token here
-                // TODO: Also, refresh token validity must be checked in this step
 
                 try {
-                    user = await DummyDB.getUserByUserId(decodedRT.sub);
-                }
-                catch { }
+                    user = await DummyDB.getUserByUserId(decodedOldRefreshToken.sub);
+                    // TODO: Check if user is not banned or something else, and throw an error in this case
 
-                // TODO: Check if user is not banned or something else
-                if (!user || !req.res) {
-                    // The only code that will return an error is here
-                    // This is because user cannot be reauthenticated with its refresh token for some reason
-                    // So clear both cookies in any way
+                    // If a new token has been generated, invalidate the current refresh token (AT is already invalid)
+                    await setRefreshTokenInvalid(decodedOldRefreshToken.jti)
+                }
+                catch {
+                    // If reaching here, refresh token was valid, but the user couldn't be reauthenticated for any reason
+
+                    // Clear both cookies (refresh token cookie surely exists)
+                    await clearAndInvalidateJwtTokens(req, res);
 
                     // NOTE: 400 should be the default error to tell FE that something is wrong and should re-authenticate
-                    req.res?.clearCookie(AT_COOKIE_NAME);
-                    req.res?.clearCookie(RT_COOKIE_NAME);
                     next(new ExtendedError(400, "Not authenticated"));
                     return;
                 }
-                else {
-                    // Otherwise, set new tokens as cookies
-                    await setJwtTokenInCookie(user, res);
-                }
             }
 
-            // Here, the user might have been reauthenticated via refresh token or might be totally unauthenticated
-            if (!user) {
-                // if user is not authenticated, clear both cookies in any way
-                req.res?.clearCookie(AT_COOKIE_NAME);
-                req.res?.clearCookie(RT_COOKIE_NAME);
+            // Here, the user might have been reauthenticated via refresh token or might be totally unauthenticated because of no refresh token
+            if (user) {
+                // If authenticated, set new tokens in cookies
+                await setJwtTokensInCookies(user, res);
             }
         }
 
         // At this point, if AT was valid, request is authenticated
         // Otherwise, depends on RT:
-        //      If RT was valid, both tokens have been regenerated and set as cookies
-        //      If RT was not valid or user was banned, both tokens have been cleared
+        //      If RT was valid, both tokens have been regenerated and set as cookies, and previous RT was set as invalid
+        //      If RT was not valid or user was banned, both tokens need to be cleared and set as invalid (see below)
 
         // Proceed with or without the user
         req.user = user || undefined;
+
+        if (!req.user) {
+            // If request is not authenticated (for any reason or for any missing/invalid token)
+            // Proceed to invalidate everything (AT or RT) present in the request
+            await clearAndInvalidateJwtTokens(req, res);
+        }
 
         next();
     })(req, res, next);
@@ -160,7 +162,7 @@ app.post('/signin', async (req: ExtendedRequest, res, next: ExtendedNextFunction
         // Return a generic error
         next(new ExtendedError(404, "User not found"));
     }
-}, setJwtTokenInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
+}, setJwtTokensInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
 
 // Register a user
 // TODO: Signin and signup must be called with no authentication (use custom middleware) or invalidate existing tokens
@@ -187,7 +189,7 @@ app.post('/signup', async (req: ExtendedRequest, res, next: ExtendedNextFunction
         // Return a generic error
         next(new ExtendedError(400, "Bad request"));
     }
-}, setJwtTokenInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
+}, setJwtTokensInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
 
 // END Email / password
 
@@ -218,12 +220,8 @@ app.get('/me/middleware', assertAuthMiddleware(), (req, res) => {
 
 
 // Performs logout
-app.post('/logout', assertAuthMiddleware(), (req, res) => {
-    // Clear both cookies
-    req.res?.clearCookie(AT_COOKIE_NAME);
-    req.res?.clearCookie(RT_COOKIE_NAME);
-
-    // TODO: Invalidate both cookies
+app.post('/logout', assertAuthMiddleware(), clearAndInvalidateJwtTokensMiddleware, (req, res) => {
+    // Jwt tokens have both been invalidated and removed from cookies
 
     res.status(200).send("OK");
 });

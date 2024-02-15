@@ -1,8 +1,9 @@
 import { Response } from 'express';
 import { Jwt, JwtPayload, SignCallback, VerifyErrors, sign, verify } from 'jsonwebtoken';
 import * as uuid from 'uuid';
-import { setRefreshTokenValid } from '../redis/redis';
-import { ExtendedError } from '../types/error';
+import { setAccessTokenInvalid, setRefreshTokenInvalid, setRefreshTokenValid } from '../redis/redis';
+import { ExtendedError, ExtendedNextFunction } from '../types/error';
+import { ExtendedRequest } from '../types/extendedRequest';
 import { DecodedJwt, EncodedJwt } from '../types/jwt';
 import { User } from '../types/user';
 
@@ -144,7 +145,7 @@ export async function decodeRefreshToken(encoded: string): Promise<DecodedJwt | 
 /**
  * Generates both access and refresh tokens and sets them as cookies
  */
-export async function setJwtTokenInCookie(user: User, res: Response): Promise<void> {
+export async function setJwtTokensInCookies(user: User, res: Response): Promise<void> {
     const { accessToken, refreshToken } = await generateTokens(user, AT_EXPIRES_IN_SECONDS);
 
     // Setting refresh token as valid
@@ -178,4 +179,32 @@ export async function setJwtTokenInCookie(user: User, res: Response): Promise<vo
         // Cookie is signed to ensure client does not modify it
         signed: true
     });
+}
+
+
+/** 
+ * Checks for both AT and RT in cookies and, if present, both invalidates them and removes them from cookies.
+ * This is useful for competely logout a user
+*/
+export async function clearAndInvalidateJwtTokens(req: ExtendedRequest, res: Response) {
+    const accessToken = req.signedCookies[AT_COOKIE_NAME];
+    const refreshToken = req.signedCookies[RT_COOKIE_NAME];
+
+    const decodedAccessToken = accessToken ? await decodeAccessToken(accessToken) : null;
+    const decodedRefreshToken = refreshToken ? await decodeRefreshToken(refreshToken) : null;
+
+    await Promise.all([
+        decodedAccessToken ? setAccessTokenInvalid(decodedAccessToken.jti, AT_EXPIRES_IN_SECONDS) : null,
+        decodedRefreshToken ? setRefreshTokenInvalid(decodedRefreshToken.jti) : null
+    ]);
+
+
+    if (accessToken) {
+        res.clearCookie(AT_COOKIE_NAME);
+    }
+
+    if (refreshToken) {
+        res.clearCookie(RT_COOKIE_NAME);
+    }
+
 }
