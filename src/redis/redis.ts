@@ -31,7 +31,7 @@ export async function setRefreshTokenValid(jti: string, ttlSeconds: number): Pro
         // Setting a key for each valid RT allows to keep stored only active RT,
         // like some minutes before they're being used to refresh an AT, or for their entire lifetime
         // Doing the opposite would result in keeping track of all the invalid RT, including those used for every AT renewal
-        redisClient.setEx(`RT_JTI_${jti}`, ttlSeconds, jti);
+        redisClient.setEx(`RT_VALID_JTI_${jti}`, ttlSeconds, jti);
     }
 }
 
@@ -39,7 +39,7 @@ export async function setRefreshTokenValid(jti: string, ttlSeconds: number): Pro
 export async function isRefreshTokenValid(jti: string): Promise<boolean> {
     if (assertClient(redisClient)) {
         // A RT is valid if its key exists
-        const value = await redisClient.get(`RT_JTI_${jti}`);
+        const value = await redisClient.get(`RT_VALID_JTI_${jti}`);
 
         return value === jti;
     }
@@ -51,7 +51,7 @@ export async function isRefreshTokenValid(jti: string): Promise<boolean> {
 /** Marks a refresh token as no more valid (expired) */
 export async function setRefreshTokenInvalid(jti: string): Promise<void> {
     if (assertClient(redisClient)) {
-        redisClient.del(`RT_JTI_${jti}`);
+        redisClient.del(`RT_VALID_JTI_${jti}`);
     }
 }
 
@@ -63,7 +63,7 @@ export async function isAccessTokenValid(jti: string): Promise<boolean> {
         // This has no particular advantage over doing the opposite,
         // but since AT have a short lifetime, we just need to track invalid tokens for a small amont of time,
         // and maybe never if the user closes the page before AT expiration
-        const keyCount: number = await redisClient.exists(`AT_JTI_${jti}`);
+        const keyCount: number = await redisClient.exists(`AT_INVALID_JTI_${jti}`);
 
         return keyCount === 0;
     }
@@ -74,6 +74,6 @@ export async function isAccessTokenValid(jti: string): Promise<boolean> {
 /** Marks an access token as no more valid (expired) */
 export async function setAccessTokenInvalid(jti: string, ttlSeconds: number): Promise<void> {
     if (assertClient(redisClient)) {
-        redisClient.setEx(`AT_JTI_${jti}`, ttlSeconds, jti);
+        redisClient.setEx(`AT_INVALID_JTI_${jti}`, ttlSeconds, jti);
     }
 }
