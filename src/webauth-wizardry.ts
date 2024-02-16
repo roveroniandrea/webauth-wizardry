@@ -179,7 +179,7 @@ export class WebauthWizardryForExpress {
                 const user = await this.config.dbClient.createUserByEmailPassword(email, password);
                 if (!user) {
                     // Return a generic error
-                    next(new ExtendedError(400, "Bad request"));
+                    next(new ExtendedError(400, "Email address not available"));
                     return;
                 }
 
