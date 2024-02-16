@@ -1,5 +1,5 @@
 import { ExtendedError } from '../types/error';
-import { ExtendedRequest } from '../types/extendedRequest';
+import { ExtendedRequest } from '../types/express';
 import { User } from '../types/user';
 
 /** Asserts that the user has been correctly retrieved from the request.

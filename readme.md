@@ -22,3 +22,7 @@ Main ares will be:
     - `Providing the identity to the client`: Now that the server has asserted the user identity, it needs to make so that the client can make further request with this identity. For this scope, JWT and/or cookies can be used. In addition, this identity needs to be retrived on every request
 
 - `Authorization`: On each request made by the client, the server needs to assert that the user (or the identity) has the required permissions to access a certain resource, or to call that endpoint, or in general to do any action.
+
+
+## See dependencies
+`npx ts_dependency_graph --start src/index.ts --graph_folder | dot -T svg > dependencygraph.svg`

@@ -1,9 +1,10 @@
 import { Response } from 'express';
 import { Jwt, JwtPayload, SignCallback, VerifyErrors, sign, verify } from 'jsonwebtoken';
+import { RedisClientType } from 'redis';
 import * as uuid from 'uuid';
 import { setAccessTokenInvalid, setRefreshTokenInvalid, setRefreshTokenValid } from '../redis/redis';
-import { ExtendedError, ExtendedNextFunction } from '../types/error';
-import { ExtendedRequest } from '../types/extendedRequest';
+import { ExtendedError } from '../types/error';
+import { ExtendedRequest } from '../types/express';
 import { DecodedJwt, EncodedJwt } from '../types/jwt';
 import { User } from '../types/user';
 
@@ -145,12 +146,12 @@ export async function decodeRefreshToken(encoded: string): Promise<DecodedJwt | 
 /**
  * Generates both access and refresh tokens and sets them as cookies
  */
-export async function setJwtTokensInCookies(user: User, res: Response): Promise<void> {
+export async function setJwtTokensInCookies(redisClient: RedisClientType, user: User, res: Response): Promise<void> {
     const { accessToken, refreshToken } = await generateTokens(user, AT_EXPIRES_IN_SECONDS);
 
     // Setting refresh token as valid
     // Note: AT are considered valid by default
-    await setRefreshTokenValid(refreshToken.jti, RT_EXPIRES_IN_SECONDS);
+    await setRefreshTokenValid(redisClient, refreshToken.jti, RT_EXPIRES_IN_SECONDS);
 
     res.cookie(AT_COOKIE_NAME, accessToken.encoded, {
         // Setting expiration in milliseconds
@@ -186,7 +187,7 @@ export async function setJwtTokensInCookies(user: User, res: Response): Promise<
  * Checks for both AT and RT in cookies and, if present, both invalidates them and removes them from cookies.
  * This is useful for competely logout a user
 */
-export async function clearAndInvalidateJwtTokens(req: ExtendedRequest, res: Response) {
+export async function clearAndInvalidateJwtTokens(redisClient: RedisClientType, req: ExtendedRequest, res: Response) {
     const accessToken = req.signedCookies[AT_COOKIE_NAME];
     const refreshToken = req.signedCookies[RT_COOKIE_NAME];
 
@@ -194,8 +195,8 @@ export async function clearAndInvalidateJwtTokens(req: ExtendedRequest, res: Res
     const decodedRefreshToken = refreshToken ? await decodeRefreshToken(refreshToken) : null;
 
     await Promise.all([
-        decodedAccessToken ? setAccessTokenInvalid(decodedAccessToken.jti, AT_EXPIRES_IN_SECONDS) : null,
-        decodedRefreshToken ? setRefreshTokenInvalid(decodedRefreshToken.jti) : null
+        decodedAccessToken ? setAccessTokenInvalid(redisClient, decodedAccessToken.jti, AT_EXPIRES_IN_SECONDS) : null,
+        decodedRefreshToken ? setRefreshTokenInvalid(redisClient, decodedRefreshToken.jti) : null
     ]);
 
 

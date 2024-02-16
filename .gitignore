@@ -9,3 +9,6 @@ dist
 
 # Volumes
 redis-data
+
+# Extra
+dependencygraph.svg
