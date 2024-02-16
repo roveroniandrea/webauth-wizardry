@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import * as uuid from 'uuid';
 import { User } from '../types/user';
+import { DatabaseInterface } from './databaseInterface';
 
 
 /**
@@ -8,20 +9,19 @@ import { User } from '../types/user';
  * 
  * Feel free to use in production if you hate yourself
  */
-export module DummyDB {
-
+export class DummyDB implements DatabaseInterface {
 
     /** Table used to store user data */
-    const USERS_TABLE: User[] = [];
+    private readonly USERS_TABLE: User[] = [];
 
     /** Stores hashed password for each user */
-    const PASSWORD_BY_USER: Map<string, string> = new Map<string, string>();
+    private readonly PASSWORD_BY_USER: Map<string, string> = new Map<string, string>();
 
     /** Creates a user given email and password.
      * Password is hashed
      */
-    export async function createUserByEmailPassword(email: string, password: string): Promise<User> {
-        if (USERS_TABLE.some(u => u.email === email)) {
+    public async createUserByEmailPassword(email: string, password: string): Promise<User> {
+        if (this.USERS_TABLE.some(u => u.email === email)) {
             throw new Error("Email already used");
         }
 
@@ -30,20 +30,20 @@ export module DummyDB {
             email: email
         };
 
-        USERS_TABLE.push(user);
+        this.USERS_TABLE.push(user);
 
         const hashedPw = await bcrypt.hash(password, 10);
-        PASSWORD_BY_USER.set(user.userId, hashedPw);
+        this.PASSWORD_BY_USER.set(user.userId, hashedPw);
 
         return user;
     }
 
     /** Retrieves a user by email if the corresponding hashed password matches */
-    export async function getUserByEmailPassword(email: string, password: string): Promise<User | null> {
-        const user: User | null = USERS_TABLE.find(u => u.email === email) || null;
+    public async getUserByEmailPassword(email: string, password: string): Promise<User | null> {
+        const user: User | null = this.USERS_TABLE.find(u => u.email === email) || null;
 
         if (user) {
-            const hashedPw = PASSWORD_BY_USER.get(user.userId) || null;
+            const hashedPw = this.PASSWORD_BY_USER.get(user.userId) || null;
 
             if (hashedPw) {
                 const isPwOk = await bcrypt.compare(password, hashedPw);
@@ -58,8 +58,8 @@ export module DummyDB {
     }
 
     /** Retrieves user data by its id */
-    export async function getUserByUserId(userId: string): Promise<User> {
-        const user: User | null = USERS_TABLE.find(u => u.userId === userId) || null;
+    public async getUserByUserId(userId: string): Promise<User> {
+        const user: User | null = this.USERS_TABLE.find(u => u.userId === userId) || null;
 
         if (!user) {
             throw new Error("User not found");
@@ -69,7 +69,7 @@ export module DummyDB {
     }
 
     /** Lists user data */
-    export async function listUsers(): Promise<User[]> {
-        return Promise.resolve(USERS_TABLE);
+    public async listUsers(): Promise<User[]> {
+        return Promise.resolve(this.USERS_TABLE);
     }
 }

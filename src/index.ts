@@ -20,10 +20,12 @@ const redisClient: RedisClientType = createClient();
 redisClient.on('error', err => console.log('Redis Client Error', err))
     .on('ready', () => console.log('Redis is ready'));
 
+const dbClient = new DummyDB();
 
 const webauthWizardry = new WebauthWizardryForExpress({
     router: app,
-    redisClient: redisClient
+    redisClient: redisClient,
+    dbClient: dbClient
 })
     .withEmailPasswordAuth();
 
@@ -34,7 +36,7 @@ app.get('/', (req, res) => {
 
 
 app.get('/users', async (_, res) => {
-    const users: User[] = await DummyDB.listUsers();
+    const users: User[] = await dbClient.listUsers();
 
     res.send(users);
 });

@@ -7,7 +7,7 @@ export async function setRefreshTokenValid(redisClient: RedisClientType, jti: st
     // Setting a key for each valid RT allows to keep stored only active RT,
     // like some minutes before they're being used to refresh an AT, or for their entire lifetime
     // Doing the opposite would result in keeping track of all the invalid RT, including those used for every AT renewal
-    redisClient.setEx(`RT_VALID_JTI_${jti}`, ttlSeconds, jti);
+    await redisClient.setEx(`RT_VALID_JTI_${jti}`, ttlSeconds, jti);
 }
 
 /** Checks if a refresh token is still considered valid */
@@ -16,14 +16,12 @@ export async function isRefreshTokenValid(redisClient: RedisClientType, jti: str
     const value = await redisClient.get(`RT_VALID_JTI_${jti}`);
 
     return value === jti;
-
-    return false;
 }
 
 
 /** Marks a refresh token as no more valid (expired) */
 export async function setRefreshTokenInvalid(redisClient: RedisClientType, jti: string): Promise<void> {
-    redisClient.del(`RT_VALID_JTI_${jti}`);
+    await redisClient.del(`RT_VALID_JTI_${jti}`);
 }
 
 
@@ -36,11 +34,9 @@ export async function isAccessTokenValid(redisClient: RedisClientType, jti: stri
     const keyCount: number = await redisClient.exists(`AT_INVALID_JTI_${jti}`);
 
     return keyCount === 0;
-
-    return false;
 }
 
 /** Marks an access token as no more valid (expired) */
 export async function setAccessTokenInvalid(redisClient: RedisClientType, jti: string, ttlSeconds: number): Promise<void> {
-    redisClient.setEx(`AT_INVALID_JTI_${jti}`, ttlSeconds, jti);
+    await redisClient.setEx(`AT_INVALID_JTI_${jti}`, ttlSeconds, jti);
 }

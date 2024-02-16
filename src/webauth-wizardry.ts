@@ -5,7 +5,7 @@ import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
 import { RedisClientType } from 'redis';
 import { assertAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
-import { DummyDB } from './db/dummyDB';
+import { DatabaseInterface } from './db/databaseInterface';
 import { AT_COOKIE_NAME, RT_COOKIE_NAME, clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
 import { isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
@@ -15,6 +15,7 @@ import { User } from './types/user';
 type WebauthWizardryConfig = {
     router: Router;
     redisClient: RedisClientType;
+    dbClient: DatabaseInterface;
 }
 
 export class WebauthWizardryForExpress {
@@ -89,7 +90,7 @@ export class WebauthWizardryForExpress {
                         // If refresh token is valid and thus a userId can be extracted, regenerate both
 
                         try {
-                            user = await DummyDB.getUserByUserId(decodedOldRefreshToken.sub);
+                            user = await this.config.dbClient.getUserByUserId(decodedOldRefreshToken.sub);
                             // TODO: Check if user is not banned or something else, and throw an error in this case
 
                             // If a new token has been generated, invalidate the current refresh token (AT is already invalid)
@@ -148,7 +149,7 @@ export class WebauthWizardryForExpress {
             }
 
             try {
-                const user = await DummyDB.getUserByEmailPassword(email, password);
+                const user = await this.config.dbClient.getUserByEmailPassword(email, password);
                 if (!user) {
                     // Return a generic error
                     next(new ExtendedError(404, "User not found"));
@@ -163,7 +164,7 @@ export class WebauthWizardryForExpress {
                 // Return a generic error
                 next(new ExtendedError(404, "User not found"));
             }
-        }, setJwtTokensInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
+        }, setJwtTokensInCookieMiddleware(this.config.redisClient)); // Call the middleware to generate and set the jwt token in cookies
 
         // Register a user
         // TODO: Signin and signup must be called with no authentication (use custom middleware) or invalidate existing tokens
@@ -175,7 +176,7 @@ export class WebauthWizardryForExpress {
                 return;
             }
             try {
-                const user = await DummyDB.createUserByEmailPassword(email, password);
+                const user = await this.config.dbClient.createUserByEmailPassword(email, password);
                 if (!user) {
                     // Return a generic error
                     next(new ExtendedError(400, "Bad request"));
@@ -190,7 +191,7 @@ export class WebauthWizardryForExpress {
                 // Return a generic error
                 next(new ExtendedError(400, "Bad request"));
             }
-        }, setJwtTokensInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
+        }, setJwtTokensInCookieMiddleware(this.config.redisClient)); // Call the middleware to generate and set the jwt token in cookies
 
         // END Email / password
 
@@ -199,7 +200,7 @@ export class WebauthWizardryForExpress {
 
     private setupLogout() {
         // Performs logout
-        this.config.router.post('/logout', assertAuthMiddleware(), clearAndInvalidateJwtTokensMiddleware, (req: ExtendedRequest, res: Response) => {
+        this.config.router.post('/logout', assertAuthMiddleware(), clearAndInvalidateJwtTokensMiddleware(this.config.redisClient), (req: ExtendedRequest, res: Response) => {
             // Jwt tokens have both been invalidated and removed from cookies
 
             res.status(200).send("OK");
