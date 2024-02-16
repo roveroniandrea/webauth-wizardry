@@ -4,7 +4,7 @@ import { Response, Router } from 'express';
 import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
 import { RedisClientType } from 'redis';
-import { assertAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
+import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
 import { DatabaseInterface } from './db/databaseInterface';
 import { AT_COOKIE_NAME, RT_COOKIE_NAME, clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
 import { isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from './redis/redis';
@@ -139,59 +139,63 @@ export class WebauthWizardryForExpress {
         // START Email / password
         // Basic authentication is not needed, it might be useful only when needing some automatic browser auth
         // https://stackoverflow.com/questions/8127635/why-should-i-use-http-basic-authentication-instead-of-username-and-password-post
-        // TODO: Signin and signup must be called with no authentication (use custom middleware) or invalidate existing tokens
-        this.config.router.post('/signin', async (req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
-            const { email, password } = req.body;
+        this.config.router.post('/signin',
+            // Signin and signup must be called with no authentication
+            assertNoAuthMiddleware(),
+            async (req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
+                const { email, password } = req.body;
 
-            if (!email || !password) {
-                next(new ExtendedError(400, "Missing required data"));
-                return;
-            }
+                if (!email || !password) {
+                    next(new ExtendedError(400, "Missing required data"));
+                    return;
+                }
 
-            try {
-                const user = await this.config.dbClient.getUserByEmailPassword(email, password);
-                if (!user) {
+                try {
+                    const user = await this.config.dbClient.getUserByEmailPassword(email, password);
+                    if (!user) {
+                        // Return a generic error
+                        next(new ExtendedError(404, "User not found"));
+                        return;
+                    }
+
+                    req.user = user;
+
+                    next();
+                }
+                catch {
                     // Return a generic error
                     next(new ExtendedError(404, "User not found"));
-                    return;
                 }
-
-                req.user = user;
-
-                next();
-            }
-            catch {
-                // Return a generic error
-                next(new ExtendedError(404, "User not found"));
-            }
-        }, setJwtTokensInCookieMiddleware(this.config.redisClient)); // Call the middleware to generate and set the jwt token in cookies
+            }, setJwtTokensInCookieMiddleware(this.config.redisClient)); // Call the middleware to generate and set the jwt token in cookies
 
         // Register a user
-        // TODO: Signin and signup must be called with no authentication (use custom middleware) or invalidate existing tokens
-        this.config.router.post('/signup', async (req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
-            const { email, password } = req.body;
+        this.config.router.post('/signup',
+            // Signin and signup must be called with no authentication
+            assertNoAuthMiddleware(),
+            async (req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
+                const { email, password } = req.body;
 
-            if (!email || !password) {
-                next(new ExtendedError(400, "Missing required data"));
-                return;
-            }
-            try {
-                const user = await this.config.dbClient.createUserByEmailPassword(email, password);
-                if (!user) {
-                    // Return a generic error
-                    next(new ExtendedError(400, "Email address not available"));
+                if (!email || !password) {
+                    next(new ExtendedError(400, "Missing required data"));
                     return;
                 }
+                try {
+                    const user = await this.config.dbClient.createUserByEmailPassword(email, password);
+                    if (!user) {
+                        // Return a generic error
+                        next(new ExtendedError(400, "Email address not available"));
+                        return;
+                    }
 
-                req.user = user;
+                    req.user = user;
 
-                next();
-            }
-            catch {
-                // Return a generic error
-                next(new ExtendedError(400, "Bad request"));
-            }
-        }, setJwtTokensInCookieMiddleware(this.config.redisClient)); // Call the middleware to generate and set the jwt token in cookies
+                    next();
+                }
+                catch {
+                    // Return a generic error
+                    next(new ExtendedError(400, "Bad request"));
+                }
+            }, setJwtTokensInCookieMiddleware(this.config.redisClient)); // Call the middleware to generate and set the jwt token in cookies
 
         // END Email / password
 
@@ -200,10 +204,13 @@ export class WebauthWizardryForExpress {
 
     private setupLogout() {
         // Performs logout
-        this.config.router.post('/logout', assertAuthMiddleware(), clearAndInvalidateJwtTokensMiddleware(this.config.redisClient), (req: ExtendedRequest, res: Response) => {
-            // Jwt tokens have both been invalidated and removed from cookies
+        this.config.router.post('/logout',
+            // Logout must be called with authentication
+            assertAuthMiddleware(),
+            clearAndInvalidateJwtTokensMiddleware(this.config.redisClient), (req: ExtendedRequest, res: Response) => {
+                // Jwt tokens have both been invalidated and removed from cookies
 
-            res.status(200).send("OK");
-        });
+                res.status(200).send("OK");
+            });
     }
 }
