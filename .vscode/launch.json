@@ -7,12 +7,12 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Avvia programma",
+            "name": "Run test",
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "${workspaceFolder}/src/index.ts",
-            "preLaunchTask": "npm: build",
+            "program": "${workspaceFolder}/test/index.spec.ts",
+            "preLaunchTask": "npm: build-test",
             "outFiles": [
                 "${workspaceFolder}/**/*.js"
             ]

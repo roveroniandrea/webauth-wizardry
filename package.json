@@ -1,14 +1,23 @@
 {
-  "name": "webauth-wizardry",
+  "name": "@roveroniandrea/webauth-wizardry",
   "version": "1.0.0",
   "description": "This repository contains experiments related to authentication and authorization between web server and clients.",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node dist/index.js",
-    "build": "tsc"
+    "start": "echo \"If you want to test, run \"npm run test\"\"",
+    "build": "tsc -p tsconfig.build.json",
+    "build-test": "tsc -p tsconfig.json",
+    "pretest": "npm run build-test",
+    "test": "node dist/test/index.spec.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [],
-  "author": "",
+  "author": "Andrea Roveroni",
   "license": "ISC",
   "dependencies": {
     "bcrypt": "^5.1.1",

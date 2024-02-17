@@ -23,6 +23,15 @@ Main ares will be:
 
 - `Authorization`: On each request made by the client, the server needs to assert that the user (or the identity) has the required permissions to access a certain resource, or to call that endpoint, or in general to do any action.
 
+# Building
+To build only the src files (without tests) run `npm run build`. This starts building following `tsconfig.build.json` config, that specifies to exclude test folder. This also generates `.d.ts` files and sourcemaps as it extends `tsconfig.json`.
+
+# Testing
+Tests are in `test/` folder. To run them, use `npm run test`.
+This is configured to first build both the src and test folder using `npm run build-test` as pretest task, that builds with `tsconfig.json` file, that includes test folder into the build, in addition with generating .d.ts files and sourcemaps.
+
+Optionally, you can use the VS Code `Run test` configuration that allows you to use the debugger. This is configured to launch `test/index.spec.ts` file, using `npm: build-test` as pre-launch task.
 
 ## See dependencies
+To see dependencies between each file, you may run the following command:
 `npx ts_dependency_graph --start src/index.ts --graph_folder | dot -T svg > dependencygraph.svg`
