@@ -10,12 +10,6 @@
     "pretest": "npm run build-test",
     "test": "node dist/test/index.spec.js"
   },
-  "files": [
-    "dist"
-  ],
-  "publishConfig": {
-    "access": "public"
-  },
   "keywords": [],
   "author": "Andrea Roveroni",
   "license": "ISC",
