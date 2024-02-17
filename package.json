@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "echo \"If you want to test, run \"npm run test\". See readme for more infos\"",
-    "build": "tsc -p tsconfig.build.json",
-    "build-test": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build-test": "rm -rf dist && tsc -p tsconfig.json",
     "pretest": "npm run build-test",
     "test": "node dist/test/index.spec.js"
   },

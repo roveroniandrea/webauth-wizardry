@@ -25,6 +25,7 @@ Main ares will be:
 
 # Building
 To build only the src files (without tests) run `npm run build`. This starts building following `tsconfig.build.json` config, that specifies to exclude test folder. This also generates `.d.ts` files and sourcemaps as it extends `tsconfig.json`.
+NOTE: An additional `rm -rf dist` command is performed before build in order to clean the dist directory in case different build configuration had different build outputs
 
 # Testing
 Tests are in `test/` folder. To run them, use `npm run test`.
