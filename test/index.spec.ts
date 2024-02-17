@@ -19,6 +19,10 @@ const dbClient = new DummyDB();
 
 const webauthWizardry = new WebauthWizardryForExpress({
     router: app,
+    SECRETS: {
+        JWT_SECRET: process.env.JWT_SECRET || '',
+        COOKIE_PARSER_SECRET: process.env.COOKIE_PARSER_SECRET || ''
+    },
     redisClient: redisClient,
     dbClient: dbClient
 })

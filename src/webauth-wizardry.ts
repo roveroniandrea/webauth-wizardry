@@ -6,30 +6,65 @@ import CookieStrategy from 'passport-cookie';
 import { RedisClientType } from 'redis';
 import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
 import { DatabaseInterface } from './db/databaseInterface';
-import { AT_COOKIE_NAME, RT_COOKIE_NAME, clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
+import { clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
 import { isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExtendedRequest } from './types/express';
 import { User } from './types/user';
 
+
+const DEFAULT_COOKIE_CONFIG = {
+    /** Name of the cookie where to store the jwt payload */
+    ATCookieName: 'token',
+    RTCookieName: 'rt-token',
+
+    /** Access token and jwt payload validity expressed in seconds */
+    ATExpiresInSeconds: 60 * 10, // 10 minutes
+    /** Refresh token validity in seconds */
+    RTExpiresInSeconds: 3600 * 24 * 7 // 1 week
+}
+
 type WebauthWizardryConfig = {
+    /** Express router */
     router: Router;
+    /** Secrets for cookie and jwt management */
+    SECRETS: {
+        COOKIE_PARSER_SECRET: string;
+        JWT_SECRET: string;
+    };
+    /** Override default config for cookies and jwt */
+    cookieConfig?: Partial<typeof DEFAULT_COOKIE_CONFIG>;
+    /** Redis client */
     redisClient: RedisClientType;
+    /** Database client */
     dbClient: DatabaseInterface;
 }
 
 export class WebauthWizardryForExpress {
-    constructor(private readonly config: WebauthWizardryConfig) {
-        // Body parser allows to populate `req.body`
-        config.router.use(bodyParser.json());
 
-        // A secret is required in order to create signed cookies
-        const COOKIE_PARSER_SECRET = process.env.COOKIE_PARSER_SECRET;
-        if (!COOKIE_PARSER_SECRET) {
+    private readonly config: Omit<WebauthWizardryConfig, "cookieConfig"> & {
+        cookieConfig: typeof DEFAULT_COOKIE_CONFIG;
+    };
+
+    constructor(customConfig: WebauthWizardryConfig) {
+        this.config = {
+            ...customConfig,
+            // Start with default config for cookies, but override if specified from input
+            cookieConfig: {
+                ...DEFAULT_COOKIE_CONFIG,
+                ...(customConfig.cookieConfig || {})
+            }
+        }
+
+        // Body parser allows to populate `req.body`
+        this.config.router.use(bodyParser.json());
+
+        // Check for secrets
+        if (!this.config.SECRETS.COOKIE_PARSER_SECRET || !this.config.SECRETS.JWT_SECRET) {
             throw new Error("Missing configuration");
         }
         // CookieParser sets `req.cookies` and `req.signedCookies`
-        config.router.use(cookieParser(COOKIE_PARSER_SECRET));
+        this.config.router.use(cookieParser(this.config.SECRETS.COOKIE_PARSER_SECRET));
 
         // Passport strategies
         this.setupCookieStrategy();
@@ -41,13 +76,13 @@ export class WebauthWizardryForExpress {
     private setupCookieStrategy() {
         // Cookie strategy allows to extract token from cookies
         passport.use(new CookieStrategy({
-            cookieName: AT_COOKIE_NAME,
+            cookieName: this.config.cookieConfig.ATCookieName,
             signed: true,
             passReqToCallback: true
         }, async (req: Request, token: string, done: (err: ExtendedError | null, user: User | null) => void) => {
             // If there's a token, decode and extract it
             // This will never throw an error, just null in case the user cannot be extracted for any reason
-            const decodedAccessToken = await decodeAccessToken(token);
+            const decodedAccessToken = await decodeAccessToken(token, this.config.SECRETS.JWT_SECRET);
 
             // Also, check access token validity
             const accessTokenValid: boolean = decodedAccessToken ? await isAccessTokenValid(this.config.redisClient, decodedAccessToken.jti) : false;
@@ -80,10 +115,10 @@ export class WebauthWizardryForExpress {
                 // TODO: This might be converted into a custom strategy or middleware?
                 if (!user) {
                     // If for any reason the user cannot be extracted from access token (missing cookie, jwt invalid), try refreshing the session
-                    const oldRefreshToken: string = req.signedCookies[RT_COOKIE_NAME];
+                    const oldRefreshToken: string = req.signedCookies[this.config.cookieConfig.RTCookieName];
 
                     // Decode the extracted refresh token and check its validity
-                    const decodedOldRefreshToken = oldRefreshToken ? await decodeRefreshToken(oldRefreshToken) : null;
+                    const decodedOldRefreshToken = oldRefreshToken ? await decodeRefreshToken(oldRefreshToken, this.config.SECRETS.JWT_SECRET) : null;
                     const refreshTokenValid: boolean = decodedOldRefreshToken ? await isRefreshTokenValid(this.config.redisClient, decodedOldRefreshToken.jti) : false;
 
                     if (decodedOldRefreshToken && refreshTokenValid) {
@@ -100,7 +135,12 @@ export class WebauthWizardryForExpress {
                             // If reaching here, refresh token was valid, but the user couldn't be reauthenticated for any reason
 
                             // Clear both cookies (refresh token cookie surely exists)
-                            await clearAndInvalidateJwtTokens(this.config.redisClient, req, res);
+                            await clearAndInvalidateJwtTokens(this.config.redisClient, req, res, {
+                                jwtSecret: this.config.SECRETS.JWT_SECRET,
+                                ATCookieName: this.config.cookieConfig.ATCookieName,
+                                ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds,
+                                RTCookieName: this.config.cookieConfig.RTCookieName
+                            });
 
                             // NOTE: 400 should be the default error to tell FE that something is wrong and should re-authenticate
                             next(new ExtendedError(400, "Not authenticated"));
@@ -111,7 +151,13 @@ export class WebauthWizardryForExpress {
                     // Here, the user might have been reauthenticated via refresh token or might be totally unauthenticated because of no refresh token
                     if (user) {
                         // If authenticated, set new tokens in cookies
-                        await setJwtTokensInCookies(this.config.redisClient, user, res);
+                        await setJwtTokensInCookies(this.config.redisClient, user, res, {
+                            jwtSecret: this.config.SECRETS.JWT_SECRET,
+                            ATCookieName: this.config.cookieConfig.ATCookieName,
+                            RTCookieName: this.config.cookieConfig.RTCookieName,
+                            ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds,
+                            RTExpiresInSeconds: this.config.cookieConfig.RTExpiresInSeconds
+                        });
                     }
                 }
 
@@ -126,7 +172,12 @@ export class WebauthWizardryForExpress {
                 if (!req.user) {
                     // If request is not authenticated (for any reason or for any missing/invalid token)
                     // Proceed to invalidate everything (AT or RT) present in the request
-                    await clearAndInvalidateJwtTokens(this.config.redisClient, req, res);
+                    await clearAndInvalidateJwtTokens(this.config.redisClient, req, res, {
+                        jwtSecret: this.config.SECRETS.JWT_SECRET,
+                        ATCookieName: this.config.cookieConfig.ATCookieName,
+                        RTCookieName: this.config.cookieConfig.RTCookieName,
+                        ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds
+                    });
                 }
 
                 next();
@@ -166,7 +217,13 @@ export class WebauthWizardryForExpress {
                     // Return a generic error
                     next(new ExtendedError(404, "User not found"));
                 }
-            }, setJwtTokensInCookieMiddleware(this.config.redisClient)); // Call the middleware to generate and set the jwt token in cookies
+            }, setJwtTokensInCookieMiddleware(this.config.redisClient, {
+                jwtSecret: this.config.SECRETS.JWT_SECRET,
+                ATCookieName: this.config.cookieConfig.ATCookieName,
+                RTCookieName: this.config.cookieConfig.RTCookieName,
+                ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds,
+                RTExpiresInSeconds: this.config.cookieConfig.RTExpiresInSeconds
+            })); // Call the middleware to generate and set the jwt token in cookies
 
         // Register a user
         this.config.router.post('/signup',
@@ -195,7 +252,13 @@ export class WebauthWizardryForExpress {
                     // Return a generic error
                     next(new ExtendedError(400, "Bad request"));
                 }
-            }, setJwtTokensInCookieMiddleware(this.config.redisClient)); // Call the middleware to generate and set the jwt token in cookies
+            }, setJwtTokensInCookieMiddleware(this.config.redisClient, {
+                jwtSecret: this.config.SECRETS.JWT_SECRET,
+                ATCookieName: this.config.cookieConfig.ATCookieName,
+                RTCookieName: this.config.cookieConfig.RTCookieName,
+                ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds,
+                RTExpiresInSeconds: this.config.cookieConfig.RTExpiresInSeconds
+            })); // Call the middleware to generate and set the jwt token in cookies
 
         // END Email / password
 
@@ -207,7 +270,12 @@ export class WebauthWizardryForExpress {
         this.config.router.post('/logout',
             // Logout must be called with authentication
             assertAuthMiddleware(),
-            clearAndInvalidateJwtTokensMiddleware(this.config.redisClient), (req: ExtendedRequest, res: Response) => {
+            clearAndInvalidateJwtTokensMiddleware(this.config.redisClient, {
+                jwtSecret: this.config.SECRETS.JWT_SECRET,
+                ATCookieName: this.config.cookieConfig.ATCookieName,
+                RTCookieName: this.config.cookieConfig.RTCookieName,
+                ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds
+            }), (req: ExtendedRequest, res: Response) => {
                 // Jwt tokens have both been invalidated and removed from cookies
 
                 res.status(200).send("OK");

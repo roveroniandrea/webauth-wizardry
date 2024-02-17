@@ -8,31 +8,17 @@ import { ExtendedRequest } from '../types/express';
 import { DecodedJwt, EncodedJwt } from '../types/jwt';
 import { User } from '../types/user';
 
-/** Name of the cookie where to store the jwt payload */
-export const AT_COOKIE_NAME: string = 'token';
-
-export const RT_COOKIE_NAME: string = 'rt-token';
-
-/** Access token and jwt payload validity expressed in seconds */
-const AT_EXPIRES_IN_SECONDS: number = 60 * 10; // 10 minutes
-
-/** Refresh token validity in seconds */
-const RT_EXPIRES_IN_SECONDS: number = 3600 * 24 * 7; // 1 week
-
-
-
 /** 
  * Generates both access and refresh tokens.
  * Access token can hold some data, while refresh token has no data and is used for just the subject
  */
-async function generateTokens<Data extends { userId: string }>(data: Data, expiresInSeconds: number): Promise<{
+async function generateTokens<Data extends { userId: string }>(data: Data, config: {
+    expiresInSeconds: number;
+    jwtSecret: string;
+}): Promise<{
     accessToken: EncodedJwt;
     refreshToken: EncodedJwt;
 }> {
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-        throw new ExtendedError(500, "Missing configuration"), null;
-    }
 
     const signCallback = (res: Function, rej: Function, jti: string) => {
         return ((err: Error | null, encoded: string | undefined) => {
@@ -55,8 +41,8 @@ async function generateTokens<Data extends { userId: string }>(data: Data, expir
             const atJti: string = uuid.v4();
             // Date is put into a nested `jwtPayload.data` property,
             // because the token contains some more top-level properties that do not need to be passed elsewhere
-            sign({ data: data }, jwtSecret, {
-                expiresIn: expiresInSeconds,
+            sign({ data: data }, config.jwtSecret, {
+                expiresIn: config.expiresInSeconds,
                 subject: data.userId,
                 jwtid: atJti
             }, signCallback(res, rej, atJti));
@@ -64,8 +50,8 @@ async function generateTokens<Data extends { userId: string }>(data: Data, expir
         // Refresh token does not need to store data, the subject is sufficient
         new Promise<EncodedJwt>((res, rej) => {
             const rtJti: string = uuid.v4();
-            sign({}, jwtSecret, {
-                expiresIn: expiresInSeconds,
+            sign({}, config.jwtSecret, {
+                expiresIn: config.expiresInSeconds,
                 subject: data.userId,
                 jwtid: rtJti
             }, signCallback(res, rej, rtJti));
@@ -83,11 +69,7 @@ async function generateTokens<Data extends { userId: string }>(data: Data, expir
  * Decodes an encoded access token, checking its validity and the presence of a User in its data.
  * Returns null if a user cannot be extracted from the token
  */
-export async function decodeAccessToken(encoded: string): Promise<DecodedJwt<User> | null> {
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-        throw new ExtendedError(500, "Missing configuration"), null;
-    }
+export async function decodeAccessToken(encoded: string, jwtSecret: string): Promise<DecodedJwt<User> | null> {
 
     const verified = await new Promise<DecodedJwt<User> | null>((res, _) => {
         verify(encoded, jwtSecret, {
@@ -115,11 +97,7 @@ export async function decodeAccessToken(encoded: string): Promise<DecodedJwt<Use
 /** 
  * Decodes a refresh token, returning the userId (subject) it's assigned to
  */
-export async function decodeRefreshToken(encoded: string): Promise<DecodedJwt | null> {
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-        throw new ExtendedError(500, "Missing configuration"), null;
-    }
+export async function decodeRefreshToken(encoded: string, jwtSecret: string): Promise<DecodedJwt | null> {
 
     const verified = await new Promise<DecodedJwt | null>((res, _) => {
         verify(encoded, jwtSecret, {
@@ -146,17 +124,26 @@ export async function decodeRefreshToken(encoded: string): Promise<DecodedJwt | 
 /**
  * Generates both access and refresh tokens and sets them as cookies
  */
-export async function setJwtTokensInCookies(redisClient: RedisClientType, user: User, res: Response): Promise<void> {
-    const { accessToken, refreshToken } = await generateTokens(user, AT_EXPIRES_IN_SECONDS);
+export async function setJwtTokensInCookies(redisClient: RedisClientType, user: User, res: Response, config: {
+    jwtSecret: string;
+    ATCookieName: string;
+    RTCookieName: string;
+    ATExpiresInSeconds: number;
+    RTExpiresInSeconds: number;
+}): Promise<void> {
+    const { accessToken, refreshToken } = await generateTokens(user, {
+        expiresInSeconds: config.ATExpiresInSeconds,
+        jwtSecret: config.jwtSecret
+    });
 
     // Setting refresh token as valid
     // Note: AT are considered valid by default
-    await setRefreshTokenValid(redisClient, refreshToken.jti, RT_EXPIRES_IN_SECONDS);
+    await setRefreshTokenValid(redisClient, refreshToken.jti, config.RTExpiresInSeconds);
 
-    res.cookie(AT_COOKIE_NAME, accessToken.encoded, {
+    res.cookie(config.ATCookieName, accessToken.encoded, {
         // Setting expiration in milliseconds
         expires: undefined,
-        maxAge: AT_EXPIRES_IN_SECONDS * 1000,
+        maxAge: config.ATExpiresInSeconds * 1000,
         // Not available to JS
         httpOnly: true,
         // Sent only to this domain
@@ -167,10 +154,10 @@ export async function setJwtTokensInCookies(redisClient: RedisClientType, user: 
         signed: true
     });
 
-    res.cookie(RT_COOKIE_NAME, refreshToken.encoded, {
+    res.cookie(config.RTCookieName, refreshToken.encoded, {
         // Setting expiration in milliseconds
         expires: undefined,
-        maxAge: RT_EXPIRES_IN_SECONDS * 1000,
+        maxAge: config.RTExpiresInSeconds * 1000,
         // Not available to JS
         httpOnly: true,
         // Sent only to this domain
@@ -187,25 +174,30 @@ export async function setJwtTokensInCookies(redisClient: RedisClientType, user: 
  * Checks for both AT and RT in cookies and, if present, both invalidates them and removes them from cookies.
  * This is useful for competely logout a user
 */
-export async function clearAndInvalidateJwtTokens(redisClient: RedisClientType, req: ExtendedRequest, res: Response) {
-    const accessToken = req.signedCookies[AT_COOKIE_NAME];
-    const refreshToken = req.signedCookies[RT_COOKIE_NAME];
+export async function clearAndInvalidateJwtTokens(redisClient: RedisClientType, req: ExtendedRequest, res: Response, config: {
+    jwtSecret: string;
+    ATCookieName: string;
+    RTCookieName: string;
+    ATExpiresInSeconds: number;
+}) {
+    const accessToken: string | undefined = req.signedCookies[config.ATCookieName];
+    const refreshToken: string | undefined = req.signedCookies[config.RTCookieName];
 
-    const decodedAccessToken = accessToken ? await decodeAccessToken(accessToken) : null;
-    const decodedRefreshToken = refreshToken ? await decodeRefreshToken(refreshToken) : null;
+    const decodedAccessToken = accessToken ? await decodeAccessToken(accessToken, config.jwtSecret) : null;
+    const decodedRefreshToken = refreshToken ? await decodeRefreshToken(refreshToken, config.jwtSecret) : null;
 
     await Promise.all([
-        decodedAccessToken ? setAccessTokenInvalid(redisClient, decodedAccessToken.jti, AT_EXPIRES_IN_SECONDS) : null,
+        decodedAccessToken ? setAccessTokenInvalid(redisClient, decodedAccessToken.jti, config.ATExpiresInSeconds) : null,
         decodedRefreshToken ? setRefreshTokenInvalid(redisClient, decodedRefreshToken.jti) : null
     ]);
 
 
     if (accessToken) {
-        res.clearCookie(AT_COOKIE_NAME);
+        res.clearCookie(config.ATCookieName);
     }
 
     if (refreshToken) {
-        res.clearCookie(RT_COOKIE_NAME);
+        res.clearCookie(config.RTCookieName);
     }
 
 }

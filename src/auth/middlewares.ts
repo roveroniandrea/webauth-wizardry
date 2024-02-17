@@ -1,16 +1,22 @@
 import { RedisClientType } from 'redis';
 import { clearAndInvalidateJwtTokens, setJwtTokensInCookies } from '../jwt/jwt';
+import { ExtendedError } from '../types/error';
 import { ExpressMiddleware } from '../types/express';
 import { assertAuth } from './auth';
-import { ExtendedError } from '../types/error';
 
 /** 
  * Like `setJwtTokenInCookie` but as a middleware that uses `req.user` as input
  */
-export function setJwtTokensInCookieMiddleware(redisClient: RedisClientType): ExpressMiddleware {
+export function setJwtTokensInCookieMiddleware(redisClient: RedisClientType, config: {
+    jwtSecret: string;
+    ATCookieName: string;
+    RTCookieName: string;
+    ATExpiresInSeconds: number;
+    RTExpiresInSeconds: number;
+}): ExpressMiddleware {
     return async (req, res, next) => {
         if (req.user) {
-            await setJwtTokensInCookies(redisClient, req.user, res);
+            await setJwtTokensInCookies(redisClient, req.user, res, config);
         }
 
         res.status(200).send("OK");
@@ -57,9 +63,14 @@ export function assertNoAuthMiddleware(): ExpressMiddleware {
 /** 
  * Like `clearAndInvalidateJwtTokens` but as a middleware
 */
-export function clearAndInvalidateJwtTokensMiddleware(redisClient: RedisClientType): ExpressMiddleware {
+export function clearAndInvalidateJwtTokensMiddleware(redisClient: RedisClientType,config: {
+    jwtSecret: string;
+    ATCookieName: string;
+    RTCookieName: string;
+    ATExpiresInSeconds: number;
+}): ExpressMiddleware {
     return async (req, res, next) => {
-        await clearAndInvalidateJwtTokens(redisClient, req, res);
+        await clearAndInvalidateJwtTokens(redisClient, req, res, config);
 
         next();
     }
