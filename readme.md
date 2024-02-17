@@ -35,3 +35,5 @@ Optionally, you can use the VS Code `Run test` configuration that allows you to 
 ## See dependencies
 To see dependencies between each file, you may run the following command:
 `npx ts_dependency_graph --start src/index.ts --graph_folder | dot -T svg > dependencygraph.svg`
+
+TODO: Some dependencies might be moved to devDependencies

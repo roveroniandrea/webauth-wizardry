@@ -4,6 +4,7 @@
     // Per altre informazioni, visitare: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+        // Launches test/index.spec.ts file allowing for debug
         {
             "type": "node",
             "request": "launch",
@@ -11,8 +12,11 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
+            // Launch test/index.spec.ts
             "program": "${workspaceFolder}/test/index.spec.ts",
+            // Before launching, build the entire project, test included
             "preLaunchTask": "npm: build-test",
+            // Specifying out files allows to execute the corresponding js file and load sourcemaps
             "outFiles": [
                 "${workspaceFolder}/**/*.js"
             ]

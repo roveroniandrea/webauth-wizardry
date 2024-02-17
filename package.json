@@ -4,7 +4,7 @@
   "description": "This repository contains experiments related to authentication and authorization between web server and clients.",
   "main": "dist/index.js",
   "scripts": {
-    "start": "echo \"If you want to test, run \"npm run test\"\"",
+    "start": "echo \"If you want to test, run \"npm run test\". See readme for more infos\"",
     "build": "tsc -p tsconfig.build.json",
     "build-test": "tsc -p tsconfig.json",
     "pretest": "npm run build-test",

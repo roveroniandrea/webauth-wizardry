@@ -1,6 +1,7 @@
 {
 	"version": "2.0.0",
 	"tasks": [
+		// Build the entire project, test folder included. Used by `Run test` configuration
 		{
 			"type": "npm",
 			"script": "build-test",
