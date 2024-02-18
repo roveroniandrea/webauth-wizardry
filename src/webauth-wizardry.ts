@@ -11,6 +11,7 @@ import { isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from 
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExtendedRequest } from './types/express';
 import { User } from './types/user';
+import { BadRequestError, UserBannedError, UserNotFoundError } from './auth/errors';
 
 
 const DEFAULT_COOKIE_CONFIG = {
@@ -87,8 +88,18 @@ export class WebauthWizardryForExpress {
             // Also, check access token validity
             const accessTokenValid: boolean = decodedAccessToken ? await isAccessTokenValid(this.config.redisClient, decodedAccessToken.jti) : false;
 
-            // If access token is present and valid, return the user. Otherwise, access token will be cleared later
-            done(null, (decodedAccessToken?.data && accessTokenValid) ? decodedAccessToken.data : null);
+            // TODO: Optionally, here it can be verified if user is not banned, in order to block every request even before AT expires
+            // However this would increase the number of requests to Redis and introduce some delay on every request
+            const isUserBanned: boolean = (decodedAccessToken?.data?.userId) ? false : false;
+
+            if (isUserBanned) {
+                done(new UserBannedError(), null);
+            }
+            else {
+                // If access token is present and valid, return the user. Otherwise, access token will be cleared later
+                done(null, (decodedAccessToken?.data && accessTokenValid) ? decodedAccessToken.data : null);
+            }
+
         }));
 
 
@@ -104,7 +115,8 @@ export class WebauthWizardryForExpress {
                 This is because some endpoints might not require authentication
         
             */
-            passport.authenticate("cookie", { session: false }, async (err: any, user: User | false, info: any, status: any) => {
+            passport.authenticate("cookie", { session: false }, async (err: any, user: User | false | null, info: any, status: any) => {
+                // A custom error can be passed by `done` callback on passport.authenticate
                 // If there's an error, throw it
                 if (err) {
                     next(err);
@@ -124,17 +136,18 @@ export class WebauthWizardryForExpress {
                     if (decodedOldRefreshToken && refreshTokenValid) {
                         // If refresh token is valid and thus a userId can be extracted, regenerate both
 
-                        try {
-                            user = await this.config.dbClient.getUserByUserId(decodedOldRefreshToken.sub);
-                            // TODO: Check if user is not banned or something else, and throw an error in this case
+                        // First, invalidate the current refresh token (AT is already invalid)
+                        await setRefreshTokenInvalid(this.config.redisClient, decodedOldRefreshToken.jti)
 
-                            // If a new token has been generated, invalidate the current refresh token (AT is already invalid)
-                            await setRefreshTokenInvalid(this.config.redisClient, decodedOldRefreshToken.jti)
-                        }
-                        catch {
-                            // If reaching here, refresh token was valid, but the user couldn't be reauthenticated for any reason
+                        // Then try to reauthenticate
+                        user = await this.config.dbClient.getUserByUserId(decodedOldRefreshToken.sub);
 
-                            // Clear both cookies (refresh token cookie surely exists)
+                        // TODO: Check if user is not banned or something else, and throw an error in this case
+                        const isUserBanned: boolean = user ? false : false;
+
+                        if (!user || isUserBanned) {
+                            // If user does not exist or has been banned,
+                            // clear both cookies (refresh token cookie surely exists)
                             await clearAndInvalidateJwtTokens(this.config.redisClient, req, res, {
                                 jwtSecret: this.config.SECRETS.JWT_SECRET,
                                 ATCookieName: this.config.cookieConfig.ATCookieName,
@@ -142,8 +155,15 @@ export class WebauthWizardryForExpress {
                                 RTCookieName: this.config.cookieConfig.RTCookieName
                             });
 
-                            // NOTE: 400 should be the default error to tell FE that something is wrong and should re-authenticate
-                            next(new ExtendedError(400, "Not authenticated"));
+                            if (isUserBanned) {
+                                // Special error if user is banned
+                                next(new UserBannedError());
+                                return;
+                            }
+
+                            // Otherwise, RT was pointing to an inexistent user for some reason
+                            // Return a generic error
+                            next(new BadRequestError());
                             return;
                         }
                     }
@@ -197,7 +217,7 @@ export class WebauthWizardryForExpress {
                 const { email, password } = req.body;
 
                 if (!email || !password) {
-                    next(new ExtendedError(400, "Missing required data"));
+                    next(new BadRequestError());
                     return;
                 }
 
@@ -205,7 +225,7 @@ export class WebauthWizardryForExpress {
                     const user = await this.config.dbClient.getUserByEmailPassword(email, password);
                     if (!user) {
                         // Return a generic error
-                        next(new ExtendedError(404, "User not found"));
+                        next(new UserNotFoundError());
                         return;
                     }
 
@@ -215,7 +235,7 @@ export class WebauthWizardryForExpress {
                 }
                 catch {
                     // Return a generic error
-                    next(new ExtendedError(404, "User not found"));
+                    next(new UserNotFoundError());
                 }
             }, setJwtTokensInCookieMiddleware(this.config.redisClient, {
                 jwtSecret: this.config.SECRETS.JWT_SECRET,
@@ -233,25 +253,21 @@ export class WebauthWizardryForExpress {
                 const { email, password } = req.body;
 
                 if (!email || !password) {
-                    next(new ExtendedError(400, "Missing required data"));
+                    next(new BadRequestError());
                     return;
                 }
-                try {
-                    const user = await this.config.dbClient.createUserByEmailPassword(email, password);
-                    if (!user) {
-                        // Return a generic error
-                        next(new ExtendedError(400, "Email address not available"));
-                        return;
-                    }
 
-                    req.user = user;
+                const user = await this.config.dbClient.createUserByEmailPassword(email, password);
+                if (!user) {
+                    // Return a generic error stating that the email address is not available for some reasons
+                    // This has less information disclosure than an explicit "Email already taken"
+                    next(new ExtendedError(400, "Email address not available"));
+                    return;
+                }
 
-                    next();
-                }
-                catch {
-                    // Return a generic error
-                    next(new ExtendedError(400, "Bad request"));
-                }
+                req.user = user;
+                next();
+
             }, setJwtTokensInCookieMiddleware(this.config.redisClient, {
                 jwtSecret: this.config.SECRETS.JWT_SECRET,
                 ATCookieName: this.config.cookieConfig.ATCookieName,

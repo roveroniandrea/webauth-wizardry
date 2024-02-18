@@ -70,13 +70,9 @@ export class DummyDB implements DatabaseInterface {
         return null;
     }
 
-    /** Retrieves user data by its id */
-    public async getUserByUserId(userId: string): Promise<User> {
+    /** Retrieves user data by its id. Returns null if not found */
+    public async getUserByUserId(userId: string): Promise<User | null> {
         const user: User | null = this.USERS_TABLE.find(u => u.userId === userId) || null;
-
-        if (!user) {
-            throw new Error("User not found");
-        }
 
         return user;
     }

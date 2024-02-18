@@ -11,6 +11,6 @@ export interface DatabaseInterface {
     /** Retrieves a user by email if the corresponding hashed password matches */
     getUserByEmailPassword(email: string, password: string): Promise<User | null>;
 
-    /** Retrieves user data by its id */
-    getUserByUserId(userId: string): Promise<User>;
+    /** Retrieves user data by its id. Returns null if not found */
+    getUserByUserId(userId: string): Promise<User | null>;
 }
