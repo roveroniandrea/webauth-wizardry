@@ -28,6 +28,7 @@ export function setJwtTokensInCookieMiddleware(redisClient: RedisClientType, con
 
 /**
  * Alternative to `assertAuth`, but as a middleware
+ * TODO: Add support for specific authorizations
  */
 export function assertAuthMiddleware(): ExpressMiddleware {
     return (req, res, next) => {
