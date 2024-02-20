@@ -1,4 +1,3 @@
-import { ExtendedError } from '../types/error';
 import { ExtendedRequest } from '../types/express';
 import { User } from '../types/user';
 import { UnauthorizedError } from './errors';

@@ -13,7 +13,8 @@ import { User } from '../types/user';
  * Access token can hold some data, while refresh token has no data and is used for just the subject
  */
 async function generateTokens<Data extends { userId: string }>(data: Data, config: {
-    expiresInSeconds: number;
+    ATExpiresInSeconds: number;
+    RTExpiresInSeconds: number;
     jwtSecret: string;
 }): Promise<{
     accessToken: EncodedJwt;
@@ -42,7 +43,7 @@ async function generateTokens<Data extends { userId: string }>(data: Data, confi
             // Date is put into a nested `jwtPayload.data` property,
             // because the token contains some more top-level properties that do not need to be passed elsewhere
             sign({ data: data }, config.jwtSecret, {
-                expiresIn: config.expiresInSeconds,
+                expiresIn: config.ATExpiresInSeconds,
                 subject: data.userId,
                 jwtid: atJti
             }, signCallback(res, rej, atJti));
@@ -51,7 +52,7 @@ async function generateTokens<Data extends { userId: string }>(data: Data, confi
         new Promise<EncodedJwt>((res, rej) => {
             const rtJti: string = uuid.v4();
             sign({}, config.jwtSecret, {
-                expiresIn: config.expiresInSeconds,
+                expiresIn: config.RTExpiresInSeconds,
                 subject: data.userId,
                 jwtid: rtJti
             }, signCallback(res, rej, rtJti));
@@ -132,7 +133,8 @@ export async function setJwtTokensInCookies(redisClient: RedisClientType, user: 
     RTExpiresInSeconds: number;
 }): Promise<void> {
     const { accessToken, refreshToken } = await generateTokens(user, {
-        expiresInSeconds: config.ATExpiresInSeconds,
+        ATExpiresInSeconds: config.ATExpiresInSeconds,
+        RTExpiresInSeconds: config.RTExpiresInSeconds,
         jwtSecret: config.jwtSecret
     });
 
