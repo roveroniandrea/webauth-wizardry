@@ -13,7 +13,7 @@ import { isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from 
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExtendedRequest } from './types/express';
 import { ProviderData } from './types/provider';
-import { User } from './types/user';
+import { OpenIDUser, User } from './types/user';
 
 /** Config related to auth tokens and cookies */
 const DEFAULT_COOKIE_CONFIG = {
@@ -471,12 +471,14 @@ export class WebauthWizardryForExpress {
 
                     // When token is retrieved (refresh token is not present)
                     // We can extract the user's data
-                    const user: IdTokenClaims = tokenSet.claims();
+                    const tokenClaims: IdTokenClaims = tokenSet.claims();
 
-                    if (!user.email_verified) {
+                    if (!tokenClaims.email || !tokenClaims.email_verified) {
                         // This check is important: the user MUST have its email verified on OpenID provider.
                         // Otherwise, an attacker could just create an account on that provider using the victim's email, not verifing the email,
                         // and authenticate as the victim account
+
+                        // The "email verified" claim is surely presetn because it's requested by "email" scope
 
                         // Return a more clear error
                         next(new ExtendedError(401, "Email not verified on OpenID provider"));
@@ -484,7 +486,67 @@ export class WebauthWizardryForExpress {
                     }
 
                     // Here the user can be merged, because its email is verified and can be trusted
-                    // TODO: Merge user and set req.user
+                    const existingUserForProvider: OpenIDUser | null = await this.config.dbClient.getOpenIdUser(provider.providerName, tokenClaims.sub);
+
+                    if (existingUserForProvider) {
+                        // If user already exist, assert that the email has not changed
+                        // This is because of the following problems:
+                        //
+                        // What happens if a user changes his email on a provider and then logs in with that provider?
+                        // Will it still be logged in as the same user? What would happens to his data, like the email or other infos?
+                        // The easiest solution is to refuse to handle a user that has changed his email.
+                        // This will prevent any kind of problem like "wait, why the application still shows my old email?"
+                        // or "Why my email keeps changing? (he's logging in with different providers each time)"
+                        // Returning an error is the cleanest solution to solve this. In any case, users seldom change their email on providers
+                        //
+                        // This of course applies for all other user infos (profile picture, username etc)
+                        // But it has less impact and probably it should be more useful to separate completely from openId
+                        const userDataByUserId: User | null = await this.config.dbClient.getUserByUserId(existingUserForProvider.userId);
+
+                        if (!userDataByUserId || userDataByUserId.email !== tokenClaims.email) {
+                            // Return an error
+                            next(new ExtendedError(401, "Email on OpenID provider has changed"));
+                            return;
+                        }
+
+                        // Otherwise, proceed
+                        req.user = userDataByUserId;
+
+                    }
+                    else {
+                        // If the user does not exist with this specific provers, it might still exist because it has signed in with other methods
+                        // Match is done via email, and this is another reason to forbid email changes on OpenID providers
+                        // (well, more or less, match might still be valid when using a provider for the first time)
+                        const userDataByEmail: User | null = await this.config.dbClient.getUserByEmail(tokenClaims.email);
+
+                        if (!userDataByEmail) {
+                            // If match does not succeed, it means that this email was never used in this application
+                            // So, create a new user, first on the "main" table
+                            const newUser: User = await this.config.dbClient.createUserByEmail(tokenClaims.email);
+
+                            // Then on the specific provider
+                            await this.config.dbClient.createOpenIdUser({
+                                userId: newUser.userId,
+                                providerName: provider.providerName,
+                                sub: tokenClaims.sub
+                            });
+
+                            // Proceed
+                            req.user = newUser;
+                        }
+                        else {
+                            // If match succeeds, it means that the user already has logged in with other methods
+                            // Just create for this provider
+                            await this.config.dbClient.createOpenIdUser({
+                                userId: userDataByEmail.userId,
+                                providerName: provider.providerName,
+                                sub: tokenClaims.sub
+                            });
+
+                            // Proceed
+                            req.user = userDataByEmail;
+                        }
+                    }
 
                     // State and nonce cookies have already been cleared
                     next();
