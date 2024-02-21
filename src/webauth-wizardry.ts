@@ -286,6 +286,12 @@ export class WebauthWizardryForExpress {
                 // TODO: This needs to merge a user rather that creating
                 // FIXME: what if the user already exists because it has signed in with an OpenID provider?
                 // Letting an email/password to merge an already existing user would allow anyone to set a custom pw and authenticate as a user registered with openId
+                
+                // TODO: Maybe the best thing is to only accept verified emails, like for openID signup.
+                // So this request will not create a user on db, but rather send a confirmation link to the email,
+                // saving its temporary data (email/pw) on redis, pointed by the link
+                // On link followed, the right redis entry is recovered and saved on db
+                // In this way, unverified emails are never saved on db
                 const user = await this.config.dbClient.createUserByEmailPassword(email, password);
                 if (!user) {
                     // Return a generic error stating that the email address is not available for some reasons
