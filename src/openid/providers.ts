@@ -3,7 +3,7 @@ import { Issuer, IssuerMetadata } from 'openid-client';
 
 /** Already retrieved metadata about google provider */
 export const GOOGLE_ISSUER_METADATA: IssuerMetadata = {
-    "issuer": "",
+    "issuer": "https://accounts.google.com",
     "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
     "device_authorization_endpoint": "https://oauth2.googleapis.com/device/code",
     "token_endpoint": "https://oauth2.googleapis.com/token",
