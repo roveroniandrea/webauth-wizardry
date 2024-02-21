@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import express, { Response } from 'express';
 import { RedisClientType, createClient } from 'redis';
-import { ExtendedError, ExtendedNextFunction, ExtendedRequest, User, WebauthWizardryForExpress, assertAuth, assertAuthMiddleware } from '../src';
+import { ExtendedError, ExtendedNextFunction, ExtendedRequest, GOOGLE_ISSUER_METADATA, User, WebauthWizardryForExpress, assertAuth, assertAuthMiddleware } from '../src';
 import { DummyDB } from '../src/db/dummyDB';
 import { Issuer } from 'openid-client';
 
@@ -28,65 +28,10 @@ const webauthWizardry = new WebauthWizardryForExpress({
     dbClient: dbClient
 })
     .withEmailPasswordAuth()
+    // TODO: Maybe wrap as a function that accepts secrets, provider name and a function to generate the discoverable url
     .withOpenIdProviders([{
-        providerName: "google",
-        issuerMetadata: {
-            "issuer": "https://accounts.google.com",
-            "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
-            "device_authorization_endpoint": "https://oauth2.googleapis.com/device/code",
-            "token_endpoint": "https://oauth2.googleapis.com/token",
-            "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
-            "revocation_endpoint": "https://oauth2.googleapis.com/revoke",
-            "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
-            "response_types_supported": [
-                "code",
-                "token",
-                "id_token",
-                "code token",
-                "code id_token",
-                "token id_token",
-                "code token id_token",
-                "none"
-            ],
-            "subject_types_supported": [
-                "public"
-            ],
-            "id_token_signing_alg_values_supported": [
-                "RS256"
-            ],
-            "scopes_supported": [
-                "openid",
-                "email",
-                "profile"
-            ],
-            "token_endpoint_auth_methods_supported": [
-                "client_secret_post",
-                "client_secret_basic"
-            ],
-            "claims_supported": [
-                "aud",
-                "email",
-                "email_verified",
-                "exp",
-                "family_name",
-                "given_name",
-                "iat",
-                "iss",
-                "name",
-                "picture",
-                "sub"
-            ],
-            "code_challenge_methods_supported": [
-                "plain",
-                "S256"
-            ],
-            "grant_types_supported": [
-                "authorization_code",
-                "refresh_token",
-                "urn:ietf:params:oauth:grant-type:device_code",
-                "urn:ietf:params:oauth:grant-type:jwt-bearer"
-            ]
-        },
+        providerName: 'google',
+        issuerMetadata: GOOGLE_ISSUER_METADATA,
         clientId: process.env.GOOGLE_CLIENT_ID || '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET || ''
     }], {

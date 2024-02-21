@@ -312,8 +312,8 @@ export class WebauthWizardryForExpress {
 
         // Merge config with default one
         const openIdProvidersConfig: OpenIDProvidersConfig = {
-            ...(openIdProvidersConfigPartial),
-            ...OPENID_PROVIDERS_CONFIG
+            ...OPENID_PROVIDERS_CONFIG,
+            ...(openIdProvidersConfigPartial)
         }
 
         /** Calculated config for state and nonce cookies for the OpenID authentication */
@@ -382,7 +382,10 @@ export class WebauthWizardryForExpress {
 
                 // This is the url to which redirect FE, and points to the provider's signin page (like Google "choose an account to login")
                 const authUrl = client.authorizationUrl({
-                    // Scope says "give me a grant code that I can use to obtain the following infos"
+                    // Scope says "give me a grant code that I can use to obtain the following infos", and for requesting an id token, this means specifying which infos retrieve about the user 
+                    // "openid" scope is always required
+                    // "email" scope requests access to the email and email_verified Claims
+                    // "profie" requests access to the End-User's default profile Claims, which are: name, family_name, given_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale, and updated_at
                     scope: "openid email profile",
                     // Response type "code" tells the OpenID provider to initiate a "Server flow" aka "Base flow" aka "Authorization code flow"
                     // This flow is the one used for web servers (not clients)
@@ -460,8 +463,10 @@ export class WebauthWizardryForExpress {
                     }, {
                         // This time, nonce is verified internally by the passport strategy
                         nonce: requestNonce,
-                        // Also check max age
-                        max_age: openIdProvidersConfig.maxAgeTimeoutInSeconds
+                        // OpenID specifies that if max_age is passed as claim on the auth request, an auth_time clain MUST be returned in jwy payload
+                        // This seems not to happen for Google, so for now do not check max_age, otherwise passport will throw an
+                        // RPError: missing required JWT property auth_time
+                        max_age: undefined
                     });
 
                     // When token is retrieved (refresh token is not present)
