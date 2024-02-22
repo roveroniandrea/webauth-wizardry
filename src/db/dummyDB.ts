@@ -37,28 +37,21 @@ export class DummyDB implements DatabaseInterface {
 
     private readonly OPENID_USERS: OpenIDUser[] = [];
 
-    /** Creates a user given email and password.
-     * Password is hashed
-     * 
-     * If user with the same email already exists, returns null
-     * TODO: MAybe refactor like openId user creation, to create only on the password table and behave like a FK constraint
+    /** 
+     * Sets a passoword for a given userId.
+     * Behaves like settings a row with a FK constraint. Operation will throw an error if userId does not exist or if user already has a password
      */
-    public async createUserByEmailPassword(email: string, password: string): Promise<User | null> {
-        if (this.USERS_TABLE.some(u => u.email === email)) {
-            return null;
+    public async createPasswordForUser(userId: string, password: string): Promise<void> {
+        if (!this.USERS_TABLE.some(u => u.userId === userId)) {
+            throw new Error("userId does not exist");
         }
 
-        const user: User = {
-            userId: uuid.v4(),
-            email: email
-        };
-
-        this.USERS_TABLE.push(user);
+        if (this.PASSWORD_BY_USER.has(userId)) {
+            throw new Error("User aleady has password");
+        }
 
         const hashedPw = await bcrypt.hash(password, 10);
-        this.PASSWORD_BY_USER.set(user.userId, hashedPw);
-
-        return user;
+        this.PASSWORD_BY_USER.set(userId, hashedPw);
     }
 
     /** Retrieves a user by email if the corresponding hashed password matches */
@@ -96,7 +89,7 @@ export class DummyDB implements DatabaseInterface {
     public async createUserByEmail(email: string): Promise<User> {
         if (this.USERS_TABLE.some(u => u.email === email)) {
             // This should never happen, implementation must check this before calling this method
-            throw new Error("Internal: Email already exists");
+            throw new Error("Email already exists");
         }
 
         const user: User = {
@@ -122,7 +115,11 @@ export class DummyDB implements DatabaseInterface {
         if (!this.USERS_TABLE.some(u => u.userId === openIdUser.userId)) {
             // This should never happen, implementation must check this before calling this method
             // This is like a FK constraint
-            throw new Error("Internal: UserId not exists");
+            throw new Error("serId does not exist");
+        }
+
+        if (this.OPENID_USERS.some(u => u.userId === openIdUser.userId)) {
+            throw new Error("openId user already exists");
         }
 
         this.OPENID_USERS.push(openIdUser);

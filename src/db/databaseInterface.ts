@@ -8,7 +8,7 @@ export interface DatabaseInterface {
      * 
      * NOTE: For now, this does not allow to merge already existing users registered in other ways, for example with openID providers
      */
-    createUserByEmailPassword(email: string, password: string): Promise<User | null>;
+    createPasswordForUser(userId: string, password: string): Promise<void>;
 
     /** Retrieves a user by email if the corresponding hashed password matches */
     getUserByEmailPassword(email: string, password: string): Promise<User | null>;
