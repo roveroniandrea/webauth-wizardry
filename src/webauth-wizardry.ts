@@ -5,15 +5,16 @@ import { CallbackParamsType, IdTokenClaims, Issuer, TokenSet, generators } from 
 import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
 import { RedisClientType } from 'redis';
-import { BadRequestError, UserBannedError, UserNotFoundError } from './auth/errors';
+import { BadRequestError, UnauthorizedError, UserBannedError, UserNotFoundError } from './auth/errors';
 import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
 import { DatabaseInterface } from './db/databaseInterface';
 import { clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
-import { isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from './redis/redis';
+import { getAndDeleteEmailVerificationCode, isAccessTokenValid, isRefreshTokenValid, setEmailVerificationCode, setRefreshTokenInvalid } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
-import { ExtendedRequest } from './types/express';
+import { ExpressMiddleware, ExtendedRequest } from './types/express';
 import { ProviderData } from './types/provider';
 import { OpenIDUser, User } from './types/user';
+import { hashPassword, randomUrlSafeString } from './utils';
 
 /** Config related to auth tokens and cookies */
 const DEFAULT_COOKIE_CONFIG = {
@@ -27,9 +28,24 @@ const DEFAULT_COOKIE_CONFIG = {
     RTExpiresInSeconds: 3600 * 24 * 7 // 1 week
 }
 
+/** Config related to server */
+type DefaultServerConfig = {
+    serverPort: number | null;
+    routerPath: string;
+}
+
+const DEFAULT_SERVER_CONFIG: DefaultServerConfig = {
+    serverPort: null,
+    routerPath: '/',
+}
+
 type WebauthWizardryConfig = {
     /** Express router */
     router: Router;
+
+    /** Configuration related to the server */
+    serverConfig?: Partial<DefaultServerConfig>;
+
     /** Secrets for cookie and jwt management */
     SECRETS: {
         COOKIE_PARSER_SECRET: string;
@@ -44,8 +60,6 @@ type WebauthWizardryConfig = {
 }
 
 type OpenIDProvidersConfig = {
-    serverPort: number | null;
-    routerPath: string;
     stateCookieName: string;
     nonceCookieName: string;
     maxAgeTimeoutInSeconds: number;
@@ -53,8 +67,6 @@ type OpenIDProvidersConfig = {
 
 /** Config related to OpenID authentication */
 const OPENID_PROVIDERS_CONFIG: OpenIDProvidersConfig = {
-    serverPort: null,
-    routerPath: '/',
     /** State cookie when authenticating with an OpenID provider */
     stateCookieName: 'openId-state',
     /** Nonce cookie when authenticating with an OpenID provider */
@@ -63,19 +75,32 @@ const OPENID_PROVIDERS_CONFIG: OpenIDProvidersConfig = {
     maxAgeTimeoutInSeconds: 60 * 2 // 2 minutes
 }
 
+/** Default email verification code expiration */
+const DEFAULT_EMAIL_VERIFICATION_LINK_EXPIRES_IN_SECONDS: number = 3600 * 24; // 1 day
+
 export class WebauthWizardryForExpress {
 
-    private readonly config: Omit<WebauthWizardryConfig, "cookieConfig"> & {
+    private readonly config: Omit<WebauthWizardryConfig, "cookieConfig" | "serverConfig"> & {
         cookieConfig: typeof DEFAULT_COOKIE_CONFIG;
+        serverConfig: DefaultServerConfig;
     };
 
-    private get internalSetJwtTokensInCookieMiddleware() {
+    private get internalSetJwtTokensInCookieMiddleware(): ExpressMiddleware {
         return setJwtTokensInCookieMiddleware(this.config.redisClient, {
             jwtSecret: this.config.SECRETS.JWT_SECRET,
             ATCookieName: this.config.cookieConfig.ATCookieName,
             RTCookieName: this.config.cookieConfig.RTCookieName,
             ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds,
             RTExpiresInSeconds: this.config.cookieConfig.RTExpiresInSeconds
+        });
+    }
+
+    private get internalClearAndInvalidateJwtTokensMiddleware(): ExpressMiddleware {
+        return clearAndInvalidateJwtTokensMiddleware(this.config.redisClient, {
+            jwtSecret: this.config.SECRETS.JWT_SECRET,
+            ATCookieName: this.config.cookieConfig.ATCookieName,
+            RTCookieName: this.config.cookieConfig.RTCookieName,
+            ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds
         });
     }
 
@@ -86,6 +111,11 @@ export class WebauthWizardryForExpress {
             cookieConfig: {
                 ...DEFAULT_COOKIE_CONFIG,
                 ...(customConfig.cookieConfig || {})
+            },
+            // Same for server config
+            serverConfig: {
+                ...DEFAULT_SERVER_CONFIG,
+                ...(customConfig.serverConfig || {})
             }
         }
 
@@ -105,6 +135,13 @@ export class WebauthWizardryForExpress {
         // Always setup logout route
         this.setupLogout();
     }
+
+
+    /** Used to generate the callback urls to wich the OpenID provider will redirect */
+    private buildRedirectUri(req: ExtendedRequest, lastPath: string): string {
+        return `${req.protocol}://${req.hostname}${this.config.serverConfig.serverPort ? `:${this.config.serverConfig.serverPort}` : ""}${this.config.serverConfig.routerPath}${lastPath}`;
+    }
+
 
     private setupCookieStrategy() {
         // Cookie strategy allows to extract token from cookies
@@ -168,7 +205,7 @@ export class WebauthWizardryForExpress {
                     if (decodedOldRefreshToken && refreshTokenValid) {
                         // If refresh token is valid and thus a userId can be extracted, regenerate both
 
-                        // First, invalidate the current refresh token (AT is already invalid)
+                        // First, invalidate the current refresh token (AT is already invalid) TODO: Maybe get and delete immedately using redis.getdel()
                         await setRefreshTokenInvalid(this.config.redisClient, decodedOldRefreshToken.jti)
 
                         // Then try to reauthenticate
@@ -238,8 +275,22 @@ export class WebauthWizardryForExpress {
 
     }
 
-    public withEmailPasswordAuth(): WebauthWizardryForExpress {
-        // START Email / password
+
+    /** 
+     * Provides email/pw authentication, along with email verification.
+     * This requires to send emails
+     */
+    public withEmailPasswordAuth(emailPwConfig: {
+        /** Custom verification code validity in seconds */
+        verificationLinkExpiresInSeconds?: number;
+        /**
+         * Invoked when a certain email address needs to be verified
+         * Must generate a link pointing to an address on FE, that includes the verification code
+         * 
+         * FE must then perform a POST call to email verification endpoint
+         */
+        onEmailVerificationCode: (email: string, code: string) => void | Promise<void>;
+    }): WebauthWizardryForExpress {
         // Basic authentication is not needed, it might be useful only when needing some automatic browser auth
         // https://stackoverflow.com/questions/8127635/why-should-i-use-http-basic-authentication-instead-of-username-and-password-post
         this.config.router.post('/signin',
@@ -283,37 +334,132 @@ export class WebauthWizardryForExpress {
                     return;
                 }
 
-                // TODO: This needs to merge a user rather that creating
-                // FIXME: what if the user already exists because it has signed in with an OpenID provider?
-                // Letting an email/password to merge an already existing user would allow anyone to set a custom pw and authenticate as a user registered with openId
+                // First, check if this email address already exists
+                const userWithSameEmail: User | null = await this.config.dbClient.getUserByEmail(email);
 
-                // TODO: Maybe the best thing is to only accept verified emails, like for openID signup.
-                // So this request will not create a user on db, but rather send a confirmation link to the email,
-                // saving its temporary data (email/pw) on redis, pointed by the link
-                // On link followed, the right redis entry is recovered and saved on db
-                // In this way, unverified emails are never saved on db
+                if (userWithSameEmail) {
+                    // In this case the email already exists. It might be for two reasons: 
+                    // 1 - User has already registered with some other methods (openID providers for example).
+                    //      This implies that no password is set for this user
+                    //      Also, since openID providers MUST provide verified emails, this assumes that that user owns that email
+                    // 2 - Email is already taken. This implies that a password already exists
 
-                const emailAlreadyExists: boolean = await this.config.dbClient.getUserByEmail(email).then(res => Boolean(res));
+                    const passwordAlreadySet: boolean = await this.config.dbClient.isPasswordSetForUserId(userWithSameEmail.userId);
 
-                if (emailAlreadyExists) {
-                    // Return a generic error stating that the email address is not available for some reasons
-                    // This has less information disclosure than an explicit "Email already taken"
-                    next(new ExtendedError(400, "Email address not available"));
+                    if (passwordAlreadySet) {
+                        // This is case #2
+
+                        // Return a generic error stating that the email address is not available for some reason
+                        // This has less information disclosure than an explicit "Email already taken"
+                        next(new ExtendedError(400, "Email address not available"));
+                        return;
+                    }
+
+                    // Otherwise, case #1
+
+                    // The provided email needs to be verified before allowing to use this password,
+                    // This solves "what if the user already exists because it has signed in with an OpenID provider?"
+                    // Letting an email/password to merge an already existing user (signed is with another method) would allow anyone to set a custom pw
+                    // and authenticate as any already registered email
+                    //
+                    // The best thing is to only accept verified emails, like for openID signup.
+                    // So this request will not create a user on db, but rather geenerate a verification code,
+                    // saving its temporary data (email/pw) on redis, pointed by the code
+                    //
+                    // The code can be consumed with a POST request.
+                    // Then the right redis entry is recovered and saved on db
+                    // In this way, unverified emails are never saved on db
+
+                    const verificationCode: string = await randomUrlSafeString(20);
+
+                    // Set both the verification code and email/pw data on redis
+                    await setEmailVerificationCode(this.config.redisClient, verificationCode, emailPwConfig.verificationLinkExpiresInSeconds || DEFAULT_EMAIL_VERIFICATION_LINK_EXPIRES_IN_SECONDS, {
+                        mustMergeUser: true,
+                        userIdToMerge: userWithSameEmail.userId,
+                        hashedPw: await hashPassword(password)
+                    });
+
+                    // Invoke the callback. This callback should generate an email to that user
+                    await emailPwConfig.onEmailVerificationCode(email, verificationCode);
+
+                    // Then, send a message
+                    res.status(200).send("Email verification started");
+                    next();
+                    return;
+                }
+                else {
+                    // Otherwise, no other users exist with the same password
+                    // The step is similar to the # 1 case on the other condition
+                    // The only difference is that the user must not be merged, but instead created as new
+
+                    const verificationCode: string = await randomUrlSafeString(20);
+
+                    // Set both the verification code and email/pw data on redis
+                    await setEmailVerificationCode(this.config.redisClient, verificationCode, emailPwConfig.verificationLinkExpiresInSeconds || DEFAULT_EMAIL_VERIFICATION_LINK_EXPIRES_IN_SECONDS, {
+                        mustMergeUser: false,
+                        email: email,
+                        hashedPw: await hashPassword(password)
+                    });
+
+                    // Invoke the callback. This callback should generate an email to that user
+                    await emailPwConfig.onEmailVerificationCode(email, verificationCode);
+
+                    // Then, send a message
+                    res.status(200).send("Email verification started");
+                    next();
+                    return;
+                }
+            });
+
+
+        // Register a POST route for email verification
+        // This MUST not be a GET, before email browsers or antivirus might perform a GET request to the verifiation link, and
+        // that action must not confirm the email address as it would be a security flaw
+        // Instead, the user must perform this POST request maybe pressing a button or something similar
+        this.config.router.post('/email/verification',
+            // To prevent confusing behaviour about "Am I authenticated now or not?"
+            // Clear any previously authenticated user, but still require manual authentication even if this call succeeds
+            this.internalClearAndInvalidateJwtTokensMiddleware,
+            async (req: ExtendedRequest, res: Response, next: NextFunction) => {
+
+                const verificationCode: string | null = req.body.verificationCode;
+                // Retrieve and immediately invalidate the verification code
+                const verificationData = verificationCode ? await getAndDeleteEmailVerificationCode(this.config.redisClient, verificationCode) : null;
+
+                if (!verificationData) {
+                    // If the verification code does not exist, end here
+                    next(new ExtendedError(401, "Invalid verification code"));
                     return;
                 }
 
-                // Otherwise, create a new user and set his password
-                const newUser: User = await this.config.dbClient.createUserByEmail(email);
+                // Else, depends on what action needs to be performed
+                try {
+                    if (verificationData.mustMergeUser) {
+                        // Here, user must be merged.
+                        // It's the case when `userWithSameEmail` exists
+                        await this.config.dbClient.createPasswordForUser(verificationData.userIdToMerge, verificationData.hashedPw);
+                    }
+                    else {
+                        // Otherwise a new user must be created
+                        const newUser: User = await this.config.dbClient.createUserByEmail(verificationData.email);
 
-                await this.config.dbClient.createPasswordForUser(newUser.userId, password);
+                        await this.config.dbClient.createPasswordForUser(newUser.userId, verificationData.hashedPw);
+                    }
+                }
+                catch (ex) {
+                    // Process might fail if during the meantime (from code generation and email verification)
+                    // something has changed with the registered email (maybe user deleted when previously existed, or vice versa)
+                    console.error(ex);
+                    next(new ExtendedError(500, "Cannot verify email"));
+                    return;
+                }
 
-                // Proceed
-                req.user = newUser;
+
+                // Operation succeeded, but do not authenticate anything, require a manual authentication to prevent confusing behavior to the user
+                res.status(200).send("Email verified");
                 next();
+            });
 
-            }, this.internalSetJwtTokensInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
-
-        // END Email / password
 
         return this;
     }
@@ -357,11 +503,6 @@ export class WebauthWizardryForExpress {
                 client_secret: provider.clientSecret
             });
 
-            /** Used to generate the callback urls to wich the OpenID provider will redirect */
-            const buildRedirectUri = (req: ExtendedRequest, lastPath: string) => {
-                return `${req.protocol}://${req.hostname}${openIdProvidersConfig.serverPort ? `:${openIdProvidersConfig.serverPort}` : ""}${openIdProvidersConfig.routerPath}providers/${provider.providerName}/${lastPath}`;
-            }
-
             const calculatedStateCookieNameForProvider = `${openIdProvidersConfig.stateCookieName}-${provider.providerName}`;
             const calculatedNonceCookieNameForProvider = `${openIdProvidersConfig.nonceCookieName}-${provider.providerName}`;
 
@@ -392,7 +533,7 @@ export class WebauthWizardryForExpress {
 
 
                 // This is the url that Google will redirect after the user has authenticated on its page
-                const redirectUri = buildRedirectUri(req, "callback");
+                const redirectUri = this.buildRedirectUri(req, `providers/${provider.providerName}/callback`);
 
                 // This is the url to which redirect FE, and points to the provider's signin page (like Google "choose an account to login")
                 const authUrl = client.authorizationUrl({
@@ -463,7 +604,7 @@ export class WebauthWizardryForExpress {
                     // I think this is likely a third check, along with state and nonce, but this time performed by the OpenID provider
                     // in fact, passing a different uri, even if allowed in oauth configuration (on google cloud console for example)
                     // gives Uncaught OPError OPError: redirect_uri_mismatch
-                    const redirectUri = buildRedirectUri(req, "callback");
+                    const redirectUri = this.buildRedirectUri(req, `providers/${provider.providerName}/callback`);
 
                     // Now, exchage the "grant code" (which is one-time code)
                     // whith a "token id"
@@ -585,12 +726,8 @@ export class WebauthWizardryForExpress {
         this.config.router.post('/logout',
             // Logout must be called with authentication
             assertAuthMiddleware(),
-            clearAndInvalidateJwtTokensMiddleware(this.config.redisClient, {
-                jwtSecret: this.config.SECRETS.JWT_SECRET,
-                ATCookieName: this.config.cookieConfig.ATCookieName,
-                RTCookieName: this.config.cookieConfig.RTCookieName,
-                ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds
-            }), (req: ExtendedRequest, res: Response) => {
+            this.internalClearAndInvalidateJwtTokensMiddleware,
+            (req: ExtendedRequest, res: Response) => {
                 // Jwt tokens have both been invalidated and removed from cookies
 
                 res.status(200).send("OK");

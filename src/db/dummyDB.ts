@@ -39,9 +39,11 @@ export class DummyDB implements DatabaseInterface {
 
     /** 
      * Sets a passoword for a given userId.
-     * Behaves like settings a row with a FK constraint. Operation will throw an error if userId does not exist or if user already has a password
+     * Behaves like settings a row with a FK constraint. Operation will throw an error if userId does not exist or if user already has a password.
+     * 
+     * Password must already be hashed
      */
-    public async createPasswordForUser(userId: string, password: string): Promise<void> {
+    public async createPasswordForUser(userId: string, hashedPw: string): Promise<void> {
         if (!this.USERS_TABLE.some(u => u.userId === userId)) {
             throw new Error("userId does not exist");
         }
@@ -50,7 +52,6 @@ export class DummyDB implements DatabaseInterface {
             throw new Error("User aleady has password");
         }
 
-        const hashedPw = await bcrypt.hash(password, 10);
         this.PASSWORD_BY_USER.set(userId, hashedPw);
     }
 
@@ -124,5 +125,10 @@ export class DummyDB implements DatabaseInterface {
 
         this.OPENID_USERS.push(openIdUser);
 
+    }
+
+
+    public async isPasswordSetForUserId(userId: string): Promise<boolean> {
+        return this.PASSWORD_BY_USER.has(userId);
     }
 }

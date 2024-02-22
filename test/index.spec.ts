@@ -25,18 +25,24 @@ const webauthWizardry = new WebauthWizardryForExpress({
         COOKIE_PARSER_SECRET: process.env.COOKIE_PARSER_SECRET || ''
     },
     redisClient: redisClient,
-    dbClient: dbClient
+    dbClient: dbClient,
+    // Config related to server
+    serverConfig: {
+        serverPort: port
+    }
 })
-    .withEmailPasswordAuth()
+    .withEmailPasswordAuth({
+        onEmailVerificationCode: (email: string, code: string) => {
+            console.log(`\n\nEMAIL VERIFICATION for email ${email} with code ${code}\n\n`);
+        }
+    })
     // TODO: Maybe wrap as a function that accepts secrets, provider name and a function to generate the discoverable url
     .withOpenIdProviders([{
         providerName: 'google',
         issuerMetadata: GOOGLE_ISSUER_METADATA,
         clientId: process.env.GOOGLE_CLIENT_ID || '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET || ''
-    }], {
-        serverPort: port
-    });
+    }], {});
 
 // This route does not require authentication
 app.get('/', (req, res) => {

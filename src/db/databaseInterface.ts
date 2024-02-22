@@ -27,4 +27,7 @@ export interface DatabaseInterface {
 
     /** Retrieves a user from an openID provider */
     createOpenIdUser(openIdUser: OpenIDUser): Promise<void>;
+
+    /** Cheks is a password exists given a userId */
+    isPasswordSetForUserId(userId: string): Promise<boolean>;
 }

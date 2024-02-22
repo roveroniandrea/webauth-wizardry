@@ -40,3 +40,30 @@ export async function isAccessTokenValid(redisClient: RedisClientType, jti: stri
 export async function setAccessTokenInvalid(redisClient: RedisClientType, jti: string, ttlSeconds: number): Promise<void> {
     await redisClient.setEx(`AT_INVALID_JTI_${jti}`, ttlSeconds, jti);
 }
+
+
+/** Email verification data.
+ * Must either merge an existing user, or create a new one
+ */
+type EmailVerificationCodeData = {
+    mustMergeUser: false;
+    email: string;
+    hashedPw: string;
+} | {
+    mustMergeUser: true;
+    userIdToMerge: string;
+    hashedPw: string;
+}
+
+
+/** Sets data corresponding to an email verification */
+export async function setEmailVerificationCode(redisClient: RedisClientType, verificationCode: string, ttlSeconds: number, data: EmailVerificationCodeData): Promise<void> {
+    await redisClient.setEx(`EMAIL_VERIFICATION_${verificationCode}`, ttlSeconds, JSON.stringify(data));
+}
+
+/** Retrieves and immediately deletes data corresponding to an email verification */
+export async function getAndDeleteEmailVerificationCode(redisClient: RedisClientType, verificationCode: string): Promise<EmailVerificationCodeData | null> {
+    const data = await redisClient.getDel(`EMAIL_VERIFICATION_${verificationCode}`);
+
+    return data ? JSON.parse(data) : null;
+}
