@@ -1,7 +1,6 @@
 import bcrypt from 'bcrypt';
 import * as uuid from 'uuid';
-import { OpenIDUser, User } from '../types/user';
-import { DatabaseInterface } from './databaseInterface';
+import { DatabaseInterface, OpenIDUser, User } from '../../src';
 
 
 /**

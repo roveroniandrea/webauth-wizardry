@@ -5,7 +5,7 @@ import { CallbackParamsType, IdTokenClaims, Issuer, TokenSet, generators } from 
 import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
 import { RedisClientType } from 'redis';
-import { BadRequestError, UnauthorizedError, UserBannedError, UserNotFoundError } from './auth/errors';
+import { BadRequestError, UserBannedError, UserNotFoundError } from './auth/errors';
 import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
 import { DatabaseInterface } from './db/databaseInterface';
 import { clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';

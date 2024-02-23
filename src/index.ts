@@ -1,14 +1,15 @@
-import { assertAuth } from './auth/auth';
-import { assertAuthMiddleware, assertNoAuthMiddleware } from './auth/middlewares';
-import { WebauthWizardryForExpress } from './webauth-wizardry';
-
-
 // Export types
 export * from './types/error';
 export * from './types/express';
 export * from './types/jwt';
+export * from './types/provider';
 export * from './types/user';
-export * from './openid/providers';
+
+// Export DB interfce
+export { DatabaseInterface } from './db/databaseInterface';
 
 // Export ts
-export { WebauthWizardryForExpress, assertAuth, assertAuthMiddleware, assertNoAuthMiddleware }
+export { assertAuth } from './auth/auth';
+export { assertAuthMiddleware, assertNoAuthMiddleware } from './auth/middlewares';
+export * from './openid/providers';
+export { WebauthWizardryForExpress } from './webauth-wizardry';

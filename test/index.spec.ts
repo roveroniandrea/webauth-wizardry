@@ -2,8 +2,7 @@ import dotenv from 'dotenv';
 import express, { Response } from 'express';
 import { RedisClientType, createClient } from 'redis';
 import { ExtendedError, ExtendedNextFunction, ExtendedRequest, GOOGLE_ISSUER_METADATA, User, WebauthWizardryForExpress, assertAuth, assertAuthMiddleware } from '../src';
-import { DummyDB } from '../src/db/dummyDB';
-import { Issuer } from 'openid-client';
+import { DummyDB } from './utils/dummyDB';
 
 // Loading dotenv
 dotenv.config();
