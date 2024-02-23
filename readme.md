@@ -38,3 +38,11 @@ To see dependencies between each file, you may run the following command:
 `npx ts_dependency_graph --start src/index.ts --graph_folder | dot -T svg > dependencygraph.svg`
 
 TODO: Some dependencies might be moved to devDependencies
+
+
+# Publishing
+To publish, run `npm publish`.
+
+Package.json `files` property specifies that only dist files should be published, along with package.json and readme that are always added. Additionally, `prepublishOnly` script first builds the project (test excluded). This script replaces the deprecated `prepublish` script.
+
+`publishConfig` property defines package's access level.
