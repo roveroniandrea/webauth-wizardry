@@ -1,6 +1,6 @@
 {
   "name": "@roveroniandrea/webauth-wizardry",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "This repository contains experiments related to authentication and authorization between web server and clients.",
   "main": "dist/index.js",
   "scripts": {
