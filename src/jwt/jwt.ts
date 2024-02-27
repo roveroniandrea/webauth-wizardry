@@ -4,7 +4,7 @@ import { RedisClientType } from 'redis';
 import * as uuid from 'uuid';
 import { setAccessTokenInvalid, setRefreshTokenInvalid, setRefreshTokenValid } from '../redis/redis';
 import { ExtendedError } from '../types/error';
-import { ExtendedRequest } from '../types/express';
+import { ExtendedRequest, ExtendedResponse } from '../types/express';
 import { DecodedJwt, EncodedJwt } from '../types/jwt';
 import { User } from '../types/user';
 
@@ -125,7 +125,7 @@ export async function decodeRefreshToken(encoded: string, jwtSecret: string): Pr
 /**
  * Generates both access and refresh tokens and sets them as cookies
  */
-export async function setJwtTokensInCookies(redisClient: RedisClientType, user: User, res: Response, config: {
+export async function setJwtTokensInCookies(redisClient: RedisClientType, user: User, res: ExtendedResponse, config: {
     jwtSecret: string;
     ATCookieName: string;
     RTCookieName: string;
@@ -176,7 +176,7 @@ export async function setJwtTokensInCookies(redisClient: RedisClientType, user: 
  * Checks for both AT and RT in cookies and, if present, both invalidates them and removes them from cookies.
  * This is useful for competely logout a user
 */
-export async function clearAndInvalidateJwtTokens(redisClient: RedisClientType, req: ExtendedRequest, res: Response, config: {
+export async function clearAndInvalidateJwtTokens(redisClient: RedisClientType, req: ExtendedRequest, res: ExtendedResponse, config: {
     jwtSecret: string;
     ATCookieName: string;
     RTCookieName: string;

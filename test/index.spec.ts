@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
-import express, { Response } from 'express';
+import express from 'express';
 import { RedisClientType, createClient } from 'redis';
-import { ExtendedError, ExtendedNextFunction, ExtendedRequest, GOOGLE_ISSUER_METADATA, User, WebauthWizardryForExpress, assertAuth, assertAuthMiddleware } from '../src';
+import { ExtendedError, ExtendedNextFunction, ExtendedRequest, ExtendedResponse, GOOGLE_ISSUER_METADATA, User, WebauthWizardryForExpress, assertAuth, assertAuthMiddleware } from '../src';
 import { DummyDB } from './utils/dummyDB';
 
 // Loading dotenv
@@ -77,12 +77,18 @@ app.get('/me/middleware', assertAuthMiddleware(), (req, res) => {
 
 // Catching errors
 // This needs to be defined as last middleware to intercept everything
-app.use((err: Error, req: ExtendedRequest, res: Response, next: ExtendedNextFunction): void => {
+app.use((err: Error, req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction): void => {
     if (err instanceof ExtendedError) {
-        res.status(err.statusCode).send(err.message);
+        res.status(err.statusCode).send({
+            error: err.message,
+            data: null
+        });
     }
     else {
-        res.status(500).send("Internal Server Error");
+        res.status(500).send({
+            error: "Internal Server Error",
+            data: null
+        });
     }
 });
 

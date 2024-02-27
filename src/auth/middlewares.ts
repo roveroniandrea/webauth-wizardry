@@ -1,8 +1,9 @@
 import { RedisClientType } from 'redis';
 import { clearAndInvalidateJwtTokens, setJwtTokensInCookies } from '../jwt/jwt';
-import { ExtendedError } from '../types/error';
-import { ExpressMiddleware } from '../types/express';
+import { ExtendedError, ExtendedNextFunction } from '../types/error';
+import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from '../types/express';
 import { assertAuth } from './auth';
+import { UnauthorizedError } from './errors';
 
 /** 
  * Like `setJwtTokenInCookie` but as a middleware that uses `req.user` as input
@@ -14,12 +15,15 @@ export function setJwtTokensInCookieMiddleware(redisClient: RedisClientType, con
     ATExpiresInSeconds: number;
     RTExpiresInSeconds: number;
 }): ExpressMiddleware {
-    return async (req, res, next) => {
+    return async (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
         if (req.user) {
             await setJwtTokensInCookies(redisClient, req.user, res, config);
         }
 
-        res.status(200).send("OK");
+        res.status(200).send({
+            error: null,
+            data: null
+        });
 
         next();
     }
@@ -31,14 +35,14 @@ export function setJwtTokensInCookieMiddleware(redisClient: RedisClientType, con
  * TODO: Add support for specific authorizations
  */
 export function assertAuthMiddleware(): ExpressMiddleware {
-    return (req, res, next) => {
+    return (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
         try {
             // If assert auth succeeds, proceed normally
             assertAuth(req);
             next();
         }
         catch (ex) {
-            next(ex);
+            next(ex as UnauthorizedError);
         }
     }
 }
@@ -47,7 +51,7 @@ export function assertAuthMiddleware(): ExpressMiddleware {
  * Opposite of `assertAuthMiddleware`
  */
 export function assertNoAuthMiddleware(): ExpressMiddleware {
-    return (req, res, next) => {
+    return (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
         try {
             // If assert auth succeeds, throw an error
             assertAuth(req);
@@ -64,13 +68,13 @@ export function assertNoAuthMiddleware(): ExpressMiddleware {
 /** 
  * Like `clearAndInvalidateJwtTokens` but as a middleware
 */
-export function clearAndInvalidateJwtTokensMiddleware(redisClient: RedisClientType,config: {
+export function clearAndInvalidateJwtTokensMiddleware(redisClient: RedisClientType, config: {
     jwtSecret: string;
     ATCookieName: string;
     RTCookieName: string;
     ATExpiresInSeconds: number;
 }): ExpressMiddleware {
-    return async (req, res, next) => {
+    return async (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
         await clearAndInvalidateJwtTokens(redisClient, req, res, config);
 
         next();

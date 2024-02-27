@@ -11,7 +11,7 @@ import { DatabaseInterface } from './db/databaseInterface';
 import { clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
 import { getAndDeleteEmailVerificationCode, isAccessTokenValid, isRefreshTokenValid, setEmailVerificationCode, setRefreshTokenInvalid } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
-import { ExpressMiddleware, ExtendedRequest } from './types/express';
+import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from './types/express';
 import { ProviderData } from './types/provider';
 import { OpenIDUser, User } from './types/user';
 import { hashPassword, randomUrlSafeString } from './utils';
@@ -171,9 +171,19 @@ export class WebauthWizardryForExpress {
 
         }));
 
+        // For every request, add some utility headers
+        this.config.router.use((req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
+            // Allow credentials to be passed with "credentials: include" on cross domain request
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+            // Allow to pass and receive JSON data
+            res.setHeader('Access-Control-Allow-Headers', ['Content-Type', 'Accept'])
+
+            next();
+        });
 
         // For every request, extract the jwt payload from the cookies and verify it
-        this.config.router.use((req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
+        this.config.router.use((req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
 
             /*
         
@@ -296,7 +306,7 @@ export class WebauthWizardryForExpress {
         this.config.router.post('/signin',
             // Signin and signup must be called with no authentication
             assertNoAuthMiddleware(),
-            async (req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
+            async (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
                 const { email, password } = req.body;
 
                 if (!email || !password) {
@@ -326,7 +336,7 @@ export class WebauthWizardryForExpress {
         this.config.router.post('/signup',
             // Signin and signup must be called with no authentication
             assertNoAuthMiddleware(),
-            async (req: ExtendedRequest, res: Response, next: ExtendedNextFunction) => {
+            async (req: ExtendedRequest, res: ExtendedResponse<string>, next: ExtendedNextFunction) => {
                 const { email, password } = req.body;
 
                 if (!email || !password) {
@@ -383,7 +393,10 @@ export class WebauthWizardryForExpress {
                     await emailPwConfig.onEmailVerificationCode(email, verificationCode);
 
                     // Then, send a message
-                    res.status(200).send("Email verification started");
+                    res.status(200).send({
+                        error: null,
+                        data: 'EMAIL_VERIFICATION_STARTED'
+                    });
                     next();
                     return;
                 }
@@ -405,7 +418,10 @@ export class WebauthWizardryForExpress {
                     await emailPwConfig.onEmailVerificationCode(email, verificationCode);
 
                     // Then, send a message
-                    res.status(200).send("Email verification started");
+                    res.status(200).send({
+                        error: null,
+                        data: 'EMAIL_VERIFICATION_STARTED'
+                    });
                     next();
                     return;
                 }
@@ -420,7 +436,7 @@ export class WebauthWizardryForExpress {
             // To prevent confusing behaviour about "Am I authenticated now or not?"
             // Clear any previously authenticated user, but still require manual authentication even if this call succeeds
             this.internalClearAndInvalidateJwtTokensMiddleware,
-            async (req: ExtendedRequest, res: Response, next: NextFunction) => {
+            async (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => {
 
                 const verificationCode: string | null = req.body.verificationCode;
                 // Retrieve and immediately invalidate the verification code
@@ -456,7 +472,10 @@ export class WebauthWizardryForExpress {
 
 
                 // Operation succeeded, but do not authenticate anything, require a manual authentication to prevent confusing behavior to the user
-                res.status(200).send("Email verified");
+                res.status(200).send({
+                    error: null,
+                    data: null
+                });
                 next();
             });
 
@@ -516,7 +535,7 @@ export class WebauthWizardryForExpress {
             // This will redirect the FE to google (for example, but it's valid for other OpenID providers) sign in
             // Later, Google will redirect to a GET callback url (the second endpoint)
             // See https://developers.google.com/identity/openid-connect/openid-connect?hl=it#sendauthrequest
-            this.config.router.post(`/providers/${provider.providerName}`, assertNoAuthMiddleware(), (req: ExtendedRequest, res: Response, next: NextFunction) => {
+            this.config.router.post(`/providers/${provider.providerName}`, assertNoAuthMiddleware(), (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => {
 
                 // Documentation on https://www.passportjs.org/packages/openid-client/ is not examctly what I need here, because
                 // when authenticating with google, it says that code_verified (used in documentation) is not required for this "message type" (I think response type)
@@ -575,7 +594,7 @@ export class WebauthWizardryForExpress {
             // 2- The callback endpoint, the one that the provider redirects to when the user has signed in
             // This callback has some query parameters in it
             // See https://developers.google.com/identity/openid-connect/openid-connect?hl=it#confirmxsrftoken
-            this.config.router.get(`/providers/${provider.providerName}/callback`, assertNoAuthMiddleware(), async (req: ExtendedRequest, res: Response, next: NextFunction) => {
+            this.config.router.get(`/providers/${provider.providerName}/callback`, assertNoAuthMiddleware(), async (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => {
 
                 // First thing, in any case, unset both state and nonce cookie in the response
                 // Cookies will still be available inside `req` object
@@ -727,10 +746,13 @@ export class WebauthWizardryForExpress {
             // Logout must be called with authentication
             assertAuthMiddleware(),
             this.internalClearAndInvalidateJwtTokensMiddleware,
-            (req: ExtendedRequest, res: Response) => {
+            (req: ExtendedRequest, res: ExtendedResponse) => {
                 // Jwt tokens have both been invalidated and removed from cookies
 
-                res.status(200).send("OK");
+                res.status(200).send({
+                    error: null,
+                    data: null
+                });
             });
     }
 }
