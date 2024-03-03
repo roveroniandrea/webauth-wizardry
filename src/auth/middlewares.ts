@@ -6,7 +6,8 @@ import { assertAuth } from './auth';
 import { UnauthorizedError } from './errors';
 
 /** 
- * Like `setJwtTokenInCookie` but as a middleware that uses `req.user` as input
+ * Like `setJwtTokenInCookie` but as a middleware that uses `req.user` as input.
+ * 
  */
 export function setJwtTokensInCookieMiddleware(redisClient: RedisClientType, config: {
     jwtSecret: string;
@@ -19,11 +20,6 @@ export function setJwtTokensInCookieMiddleware(redisClient: RedisClientType, con
         if (req.user) {
             await setJwtTokensInCookies(redisClient, req.user, res, config);
         }
-
-        res.status(200).send({
-            error: null,
-            data: null
-        });
 
         next();
     }

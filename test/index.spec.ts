@@ -13,7 +13,7 @@ const port = 3000;
 const redisClient: RedisClientType = createClient();
 // Redis will automatically try to reconnect
 redisClient.on('error', err => console.log('Redis Client Error', err))
-    .on('ready', () => console.log('Redis is ready'));
+    .on('ready', () => console.log('Redis is ready, check http://localhost:8001 for Redis Insight'));
 
 const dbClient = new DummyDB();
 

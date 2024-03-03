@@ -29,12 +29,12 @@ const DEFAULT_COOKIE_CONFIG = {
 }
 
 /** Config related to server */
-type DefaultServerConfig = {
+type ServerConfig = {
     serverPort: number | null;
     routerPath: string;
 }
 
-const DEFAULT_SERVER_CONFIG: DefaultServerConfig = {
+const DEFAULT_SERVER_CONFIG: ServerConfig = {
     serverPort: null,
     routerPath: '/',
 }
@@ -44,7 +44,7 @@ type WebauthWizardryConfig = {
     router: Router;
 
     /** Configuration related to the server */
-    serverConfig?: Partial<DefaultServerConfig>;
+    serverConfig?: Partial<ServerConfig>;
 
     /** Secrets for cookie and jwt management */
     SECRETS: {
@@ -82,7 +82,7 @@ export class WebauthWizardryForExpress {
 
     private readonly config: Omit<WebauthWizardryConfig, "cookieConfig" | "serverConfig"> & {
         cookieConfig: typeof DEFAULT_COOKIE_CONFIG;
-        serverConfig: DefaultServerConfig;
+        serverConfig: ServerConfig;
     };
 
     private get internalSetJwtTokensInCookieMiddleware(): ExpressMiddleware {
@@ -139,6 +139,9 @@ export class WebauthWizardryForExpress {
 
     /** Used to generate the callback urls to wich the OpenID provider will redirect */
     private buildRedirectUri(req: ExtendedRequest, lastPath: string): string {
+        // FIXME: This assumes that the server is on the same domain of FE (which actually happens if no cors allowed)
+        // TODO: Use Host header
+        // https://stackoverflow.com/a/13871912/12461184
         return `${req.protocol}://${req.hostname}${this.config.serverConfig.serverPort ? `:${this.config.serverConfig.serverPort}` : ""}${this.config.serverConfig.routerPath}${lastPath}`;
     }
 
@@ -330,7 +333,18 @@ export class WebauthWizardryForExpress {
                     // Return a generic error
                     next(new UserNotFoundError());
                 }
-            }, this.internalSetJwtTokensInCookieMiddleware); // Call the middleware to generate and set the jwt token in cookies
+            },
+            // Call the middleware to generate and set the jwt token in cookies
+            this.internalSetJwtTokensInCookieMiddleware,
+            // Then, OK
+            (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
+                res.status(200).send({
+                    error: null,
+                    data: null
+                });
+
+                next();
+            }); // Call the middleware to generate and set the jwt token in cookies
 
         // Register a user
         this.config.router.post('/signup',
@@ -733,7 +747,14 @@ export class WebauthWizardryForExpress {
                 }
             },
                 // The next handler will take care of extracting `req.user` and generate AT and RT tokens
-                this.internalSetJwtTokensInCookieMiddleware);
+                this.internalSetJwtTokensInCookieMiddleware,
+                // Then, redirect to homepage
+                (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
+                    // TODO: Check if redirect is done to homepage
+                    res.redirect('/');
+
+                    next();
+                });
         }
 
         return this;

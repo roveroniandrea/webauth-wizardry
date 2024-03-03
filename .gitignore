@@ -1,8 +1,9 @@
 # Dependencies
 node_modules
 
-# Env files
+# Env files and https certificate
 .env
+*.pem
 
 # Dist
 dist
