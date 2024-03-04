@@ -10,6 +10,7 @@ dist
 
 # Volumes
 redis-data
+nginx-logs
 
 # Extra
 dependencygraph.svg

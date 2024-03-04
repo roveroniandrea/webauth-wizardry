@@ -6,4 +6,18 @@ services:
       - 8001:8001 # Redis insight
     volumes:
       - ./redis-data:/data
-    restart: always
+    restart: unless-stopped
+  nginx:
+    image: nginx:latest
+    ports:
+      - 80:80 # Only the port where Nginx listens needs to be exposed, not the ports it reverse proxies to
+    volumes:
+      - ./nginx-config:/etc/nginx/conf.d/ # Nginx config file
+      - ./nginx-logs:/var/log/nginx # Nginx logs
+    extra_hosts:
+      # This is used to allow a container to access localhost on the machine is running on
+      # Instead of localhost or 127.0.0.1, use host.docker.internal
+      # https://stackoverflow.com/a/24326540/12461184
+      - "host.docker.internal:host-gateway"
+    # network_mode: host
+    restart: unless-stopped
