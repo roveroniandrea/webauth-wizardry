@@ -148,7 +148,7 @@ export async function setJwtTokensInCookies(redisClient: RedisClientType, user: 
         maxAge: config.ATExpiresInSeconds * 1000,
         // Not available to JS
         httpOnly: true,
-        // Sent only to this domain
+        // Sent only from same domain requests
         sameSite: "strict",
         // Available only in https
         secure: true,
@@ -162,7 +162,7 @@ export async function setJwtTokensInCookies(redisClient: RedisClientType, user: 
         maxAge: config.RTExpiresInSeconds * 1000,
         // Not available to JS
         httpOnly: true,
-        // Sent only to this domain
+        // Sent only from same domain requests
         sameSite: "strict",
         // Available only in https
         secure: true,

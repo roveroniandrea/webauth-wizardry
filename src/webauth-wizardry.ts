@@ -1,6 +1,6 @@
 import bodyParser from 'body-parser';
 import cookieParser from 'cookie-parser';
-import { CookieOptions, NextFunction, Response, Router } from 'express';
+import { CookieOptions, NextFunction, Router } from 'express';
 import { CallbackParamsType, IdTokenClaims, Issuer, TokenSet, generators } from 'openid-client';
 import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
@@ -30,21 +30,16 @@ const DEFAULT_COOKIE_CONFIG = {
 
 /** Config related to server */
 type ServerConfig = {
-    serverPort: number | null;
-    routerPath: string;
+    serverBaseUrl: string;
 }
 
-const DEFAULT_SERVER_CONFIG: ServerConfig = {
-    serverPort: null,
-    routerPath: '/',
-}
 
 type WebauthWizardryConfig = {
     /** Express router */
     router: Router;
 
     /** Configuration related to the server */
-    serverConfig?: Partial<ServerConfig>;
+    serverConfig: ServerConfig;
 
     /** Secrets for cookie and jwt management */
     SECRETS: {
@@ -111,11 +106,6 @@ export class WebauthWizardryForExpress {
             cookieConfig: {
                 ...DEFAULT_COOKIE_CONFIG,
                 ...(customConfig.cookieConfig || {})
-            },
-            // Same for server config
-            serverConfig: {
-                ...DEFAULT_SERVER_CONFIG,
-                ...(customConfig.serverConfig || {})
             }
         }
 
@@ -139,10 +129,15 @@ export class WebauthWizardryForExpress {
 
     /** Used to generate the callback urls to wich the OpenID provider will redirect */
     private buildRedirectUri(req: ExtendedRequest, lastPath: string): string {
-        // FIXME: This assumes that the server is on the same domain of FE (which actually happens if no cors allowed)
-        // TODO: Use Host header
-        // https://stackoverflow.com/a/13871912/12461184
-        return `${req.protocol}://${req.hostname}${this.config.serverConfig.serverPort ? `:${this.config.serverConfig.serverPort}` : ""}${this.config.serverConfig.routerPath}${lastPath}`;
+        // This function had varius changes. Initially it used req.hostname, but that was wrong for two reasons:
+        // - When allowing cors, this method assumed requests from same origin
+        // - When removed and using a reverse proxy, this method assumed the internal host.docker.internal domain
+        // The Host header can't be used due to reverse proxy, and same for Origin, not because it might be spoofed
+        // (in that case it means the attacker would have just crafted a request with Postman or something, and signin would just fail)
+        // but because it pointed to the FE
+        // 
+        // The easiest solution is to just provide a base url for how the server can be reached
+        return `${this.config.serverConfig.serverBaseUrl}/${lastPath}`;
     }
 
 
@@ -516,8 +511,9 @@ export class WebauthWizardryForExpress {
             maxAge: openIdProvidersConfig.maxAgeTimeoutInSeconds * 1000,
             // Not available to JS
             httpOnly: true,
-            // Sent only to this domain
-            sameSite: "strict",
+            // Sent only for same origin request and when navigating from another origin
+            // This is needed just for this cookies because the openId provider does a redirect, so strict would not work
+            sameSite: "lax",
             // Available only in https
             secure: true,
             // Cookie is signed to ensure client does not modify it

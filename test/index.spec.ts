@@ -27,7 +27,7 @@ const webauthWizardry = new WebauthWizardryForExpress({
     dbClient: dbClient,
     // Config related to server
     serverConfig: {
-        serverPort: port
+        serverBaseUrl: "http://localhost:80/api"
     }
 })
     .withEmailPasswordAuth({
@@ -41,11 +41,19 @@ const webauthWizardry = new WebauthWizardryForExpress({
         issuerMetadata: GOOGLE_ISSUER_METADATA,
         clientId: process.env.GOOGLE_CLIENT_ID || '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET || ''
+    }, {
+        providerName: 'github',
+        issuerMetadata: GOOGLE_ISSUER_METADATA,
+        clientId: process.env.GOOGLE_CLIENT_ID || '',
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET || ''
     }], {});
 
 // This route does not require authentication
-app.get('/', (req, res) => {
-    res.send('Hello World!');
+app.get('/', (req: ExtendedRequest, res: ExtendedResponse<string>) => {
+    res.send({
+        error: null,
+        data: 'Hello World!'
+    });
 });
 
 
@@ -59,19 +67,25 @@ app.get('/users', async (_, res) => {
 // Retrieves info about the current logged user
 // This endpoint requires authentication
 // See also /me/middleware route
-app.get('/me', (req, res) => {
+app.get('/me', (req: ExtendedRequest, res: ExtendedResponse<User>) => {
     // `assertAuth` throws 401 if request is not authorized
     const user = assertAuth(req);
 
-    res.send(user);
+    res.send({
+        error: null,
+        data: user
+    });
 });
 
 
 // Retrieves info about the current logged user but using a middleware
 // This endpoint requires authentication
 // See also /me route
-app.get('/me/middleware', assertAuthMiddleware(), (req, res) => {
-    res.send(req.user);
+app.get('/me/middleware', assertAuthMiddleware(), (req: ExtendedRequest, res: ExtendedResponse<User>) => {
+    res.send({
+        error: null,
+        data: req.user as User
+    });
 });
 
 
