@@ -33,6 +33,19 @@ This is configured to first build both the src and test folder using `npm run bu
 
 Optionally, you can use the VS Code `Run test` configuration that allows you to use the debugger. This is configured to launch `test/index.spec.ts` file, using `npm: build-test` as pre-launch task.
 
+Additionally, use `docker-compose up` to create a container for Redis and Nginx
+
+## Why Docker, Redis, Nginx?
+These are dependencies for the test server. Redis is used for authentication's data, while Nginx is used as a reverse proxy for a FE.
+The npm package is just the src folder. Everything else is used for setting up a testing BE and reverse proxy
+
+## Testing with a FE?
+FE is currently on a separate repository. For a complete FE + BE + Redis + Nginx testing, the following configurations are set:
+- FE runs on `http://localhost:5173`, set by Vite config, and calls BE by same origin /api path
+- BE runs on `http://localhost:3000`, set by Express
+- Nginx listend at port `:80` and proxies request both to `:5173` and `/api` to `:3000`
+- Redis listens at port `:6379` and Redis Insight at `8001`
+
 ## See dependencies
 To see dependencies between each file, you may run the following command:
 `npx ts_dependency_graph --start src/index.ts --graph_folder | dot -T svg > dependencygraph.svg`
