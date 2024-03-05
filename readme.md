@@ -54,7 +54,7 @@ TODO: Some dependencies might be moved to devDependencies
 
 
 # Publishing
-To publish, run `npm publish`.
+To publish, run `npm publish` (optionally with `--dry-run` flag to just simulate publishing and list all published files).
 
 Package.json `files` property specifies that only dist files should be published, along with package.json and readme that are always added. Additionally, `prepublishOnly` script first builds the project (test excluded). This script replaces the deprecated `prepublish` script.
 
