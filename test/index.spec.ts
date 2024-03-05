@@ -32,17 +32,15 @@ const webauthWizardry = new WebauthWizardryForExpress({
 })
     .withEmailPasswordAuth({
         onEmailVerificationCode: (email: string, code: string) => {
-            console.log(`\n\nEMAIL VERIFICATION for email ${email} with code ${code}\n\n`);
+            console.log(`
+            \n\nEMAIL VERIFICATION for email ${email} with code ${code}:
+            http://localhost:80/verifyEmail/${code}
+            \n\n`);
         }
     })
     // TODO: Maybe wrap as a function that accepts secrets, provider name and a function to generate the discoverable url
     .withOpenIdProviders([{
         providerName: 'google',
-        issuerMetadata: GOOGLE_ISSUER_METADATA,
-        clientId: process.env.GOOGLE_CLIENT_ID || '',
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET || ''
-    }, {
-        providerName: 'github',
         issuerMetadata: GOOGLE_ISSUER_METADATA,
         clientId: process.env.GOOGLE_CLIENT_ID || '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET || ''
