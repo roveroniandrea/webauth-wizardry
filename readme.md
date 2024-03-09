@@ -59,3 +59,13 @@ To publish, run `npm publish` (optionally with `--dry-run` flag to just simulate
 Package.json `files` property specifies that only dist files should be published, along with package.json and readme that are always added. Additionally, `prepublishOnly` script first builds the project (test excluded). This script replaces the deprecated `prepublish` script.
 
 `publishConfig` property defines package's access level.
+
+
+# Resources used
+For openId:
+-  [OpenID Connect Basic Client Implementer's Guide 1.0](https://openid.net/specs/openid-connect-basic-1_0.html)
+- [Google Identity OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect)
+- Stackoverflow and Security StackExchange
+
+For Nginx as reverse proxy:
+- [Nginx reverse proxy](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)
