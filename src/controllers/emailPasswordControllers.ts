@@ -1,5 +1,6 @@
+import { NextFunction } from 'express';
 import { BadRequestError, UserNotFoundError } from '../auth/errors';
-import { setEmailVerificationCode } from '../redis/redis';
+import { getAndDeleteEmailVerificationCode, setEmailVerificationCode } from '../redis/redis';
 import { ExtendedError, ExtendedNextFunction } from '../types/error';
 import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from '../types/express';
 import { User } from '../types/user';
@@ -144,5 +145,51 @@ export function signUpController(config: WebauthWizardryConfig, emailPwConfig: E
             next();
             return;
         }
+    }
+}
+
+
+export function emailVerificationController(config: WebauthWizardryConfig): ExpressMiddleware {
+    return async (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => {
+
+        const verificationCode: string | null = req.body.verificationCode;
+        // Retrieve and immediately invalidate the verification code
+        const verificationData = verificationCode ? await getAndDeleteEmailVerificationCode(config.redisClient, verificationCode) : null;
+
+        if (!verificationData) {
+            // If the verification code does not exist, end here
+            next(new ExtendedError(401, "Invalid verification code"));
+            return;
+        }
+
+        // Else, depends on what action needs to be performed
+        try {
+            if (verificationData.mustMergeUser) {
+                // Here, user must be merged.
+                // It's the case when `userWithSameEmail` exists
+                await config.dbClient.createPasswordForUser(verificationData.userIdToMerge, verificationData.hashedPw);
+            }
+            else {
+                // Otherwise a new user must be created
+                const newUser: User = await config.dbClient.createUserByEmail(verificationData.email);
+
+                await config.dbClient.createPasswordForUser(newUser.userId, verificationData.hashedPw);
+            }
+        }
+        catch (ex) {
+            // Process might fail if during the meantime (from code generation and email verification)
+            // something has changed with the registered email (maybe user deleted when previously existed, or vice versa)
+            console.error(ex);
+            next(new ExtendedError(500, "Cannot verify email"));
+            return;
+        }
+
+
+        // Operation succeeded, but do not authenticate anything, require a manual authentication to prevent confusing behavior to the user
+        res.status(200).send({
+            error: null,
+            data: null
+        });
+        next();
     }
 }

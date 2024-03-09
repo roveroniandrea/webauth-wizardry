@@ -5,7 +5,7 @@ import { CallbackParamsType, IdTokenClaims, Issuer, TokenSet, generators } from 
 import passport from 'passport';
 import { BadRequestError, UserBannedError } from './auth/errors';
 import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
-import { EmailPwConfig, signInController } from './controllers/emailPasswordControllers';
+import { EmailPwConfig, emailVerificationController, signInController, signUpController } from './controllers/emailPasswordControllers';
 import { clearAndInvalidateJwtTokens, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
 import { getAndDeleteEmailVerificationCode, isRefreshTokenValid, setRefreshTokenInvalid } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
@@ -61,6 +61,7 @@ export class WebauthWizardryForExpress {
             ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds
         });
     }
+
 
     constructor(customConfig: Omit<WebauthWizardryConfig, "cookieConfig"> & {
         cookieConfig?: Partial<WebauthWizardryConfig["cookieConfig"]>;
@@ -120,7 +121,12 @@ export class WebauthWizardryForExpress {
 
     private setupCookieStrategy() {
         // Cookie strategy allows to extract token from cookies
-        passport.use(cookieStrategy(this.config));
+        passport.use(
+            //
+            // Use cookie strategy
+            cookieStrategy(this.config)
+            //
+        );
 
         // For every request, extract the jwt payload from the cookies and verify it
         this.config.router.use((req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
@@ -133,7 +139,12 @@ export class WebauthWizardryForExpress {
                 This is because some endpoints might not require authentication
         
             */
-            passport.authenticate("cookie", { session: false }, cookieAuthenticateCallback(this.config, req, res, next));
+            passport.authenticate("cookie", { session: false },
+                //
+                // Invoke the right middleware (aka authenticate callback in this case)
+                cookieAuthenticateCallback(this.config, req, res, next)
+                //
+            );
         });
     }
 
@@ -148,8 +159,10 @@ export class WebauthWizardryForExpress {
         this.config.router.post('/signin',
             // Signin and signup must be called with no authentication
             assertNoAuthMiddleware(),
-            // Call the controller
+            //
+            // Invoke the right middleware
             signInController(this.config),
+            //
             // Call the middleware to generate and set the jwt token in cookies
             this.internalSetJwtTokensInCookieMiddleware,
             // Then, OK
@@ -166,7 +179,10 @@ export class WebauthWizardryForExpress {
         this.config.router.post('/signup',
             // Signin and signup must be called with no authentication
             assertNoAuthMiddleware(),
-
+            //
+            // Invoke the right middleware
+            signUpController(this.config, emailPwConfig)
+            //
         );
 
 
@@ -178,48 +194,11 @@ export class WebauthWizardryForExpress {
             // To prevent confusing behaviour about "Am I authenticated now or not?"
             // Clear any previously authenticated user, but still require manual authentication even if this call succeeds
             this.internalClearAndInvalidateJwtTokensMiddleware,
-            async (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => {
-
-                const verificationCode: string | null = req.body.verificationCode;
-                // Retrieve and immediately invalidate the verification code
-                const verificationData = verificationCode ? await getAndDeleteEmailVerificationCode(this.config.redisClient, verificationCode) : null;
-
-                if (!verificationData) {
-                    // If the verification code does not exist, end here
-                    next(new ExtendedError(401, "Invalid verification code"));
-                    return;
-                }
-
-                // Else, depends on what action needs to be performed
-                try {
-                    if (verificationData.mustMergeUser) {
-                        // Here, user must be merged.
-                        // It's the case when `userWithSameEmail` exists
-                        await this.config.dbClient.createPasswordForUser(verificationData.userIdToMerge, verificationData.hashedPw);
-                    }
-                    else {
-                        // Otherwise a new user must be created
-                        const newUser: User = await this.config.dbClient.createUserByEmail(verificationData.email);
-
-                        await this.config.dbClient.createPasswordForUser(newUser.userId, verificationData.hashedPw);
-                    }
-                }
-                catch (ex) {
-                    // Process might fail if during the meantime (from code generation and email verification)
-                    // something has changed with the registered email (maybe user deleted when previously existed, or vice versa)
-                    console.error(ex);
-                    next(new ExtendedError(500, "Cannot verify email"));
-                    return;
-                }
-
-
-                // Operation succeeded, but do not authenticate anything, require a manual authentication to prevent confusing behavior to the user
-                res.status(200).send({
-                    error: null,
-                    data: null
-                });
-                next();
-            });
+            //
+            // Invoke the right middleware
+            emailVerificationController(this.config)
+            //
+        );
 
 
         return this;
@@ -276,6 +255,8 @@ export class WebauthWizardryForExpress {
             // See https://developers.google.com/identity/openid-connect/openid-connect?hl=it#sendauthrequest
             this.config.router.post(`/providers/${provider.providerName}`,
                 assertNoAuthMiddleware(),
+                //
+                // Invoke the right middleware
                 openIdInitAuthenticationController({
                     client: client,
                     provider: provider,
@@ -283,6 +264,7 @@ export class WebauthWizardryForExpress {
                     openIdProvidersConfig: openIdProvidersConfig,
                     buildRedirectUri: this.buildRedirectUri
                 })
+                //
             );
 
 
@@ -292,6 +274,8 @@ export class WebauthWizardryForExpress {
             // See https://developers.google.com/identity/openid-connect/openid-connect?hl=it#confirmxsrftoken
             this.config.router.get(`/providers/${provider.providerName}/callback`,
                 assertNoAuthMiddleware(),
+                //
+                // Invoke the right middleware
                 openIdCallbackController({
                     client: client,
                     provider: provider,
@@ -299,6 +283,7 @@ export class WebauthWizardryForExpress {
                     buildRedirectUri: this.buildRedirectUri,
                     config: this.config
                 }),
+                //
                 // The next handler will take care of extracting `req.user` and generate AT and RT tokens
                 this.internalSetJwtTokensInCookieMiddleware,
                 // Then, redirect to homepage
