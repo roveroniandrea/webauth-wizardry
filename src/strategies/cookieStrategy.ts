@@ -5,7 +5,7 @@ import { isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from 
 import { ExtendedError, ExtendedNextFunction } from '../types/error';
 import { User } from '../types/user';
 import { WebauthWizardryConfig } from '../types/webauth-wizardry';
-import { BadRequestError, UserBannedError } from './errors';
+import { BadRequestError, UserBannedError } from '../auth/errors';
 import { ExtendedRequest, ExtendedResponse } from '../types/express';
 
 

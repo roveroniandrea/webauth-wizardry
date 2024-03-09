@@ -13,7 +13,7 @@ import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from './types/ex
 import { ProviderData } from './types/provider';
 import { OpenIDUser, User } from './types/user';
 import { OpenIDProvidersConfig, WebauthWizardryConfig } from './types/webauth-wizardry';
-import { cookieAuthenticateCallback, cookieStrategy } from './auth/cookieStrategy';
+import { cookieAuthenticateCallback, cookieStrategy } from './strategies/cookieStrategy';
 
 /** Config related to auth tokens and cookies */
 const DEFAULT_COOKIE_CONFIG = {
