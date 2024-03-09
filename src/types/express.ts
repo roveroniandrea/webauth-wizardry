@@ -14,10 +14,10 @@ export type ExtendedRequest = Request & {
 }
 
 
-export type ExpressMiddleware = (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => void | Promise<void>;
-
 /** Express response extended to always provide an object as response */
 export type ExtendedResponse<T = null> = Response<{
     error: string | null;
     data: T;
 }>
+
+export type ExpressMiddleware<ResponseType = null> = (req: ExtendedRequest, res: ExtendedResponse<ResponseType>, next: NextFunction) => void | Promise<void>;

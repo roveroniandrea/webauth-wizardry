@@ -1,20 +1,20 @@
 import bodyParser from 'body-parser';
 import cookieParser from 'cookie-parser';
-import { CookieOptions, NextFunction, Router } from 'express';
+import { CookieOptions, NextFunction } from 'express';
 import { CallbackParamsType, IdTokenClaims, Issuer, TokenSet, generators } from 'openid-client';
 import passport from 'passport';
 import CookieStrategy from 'passport-cookie';
-import { RedisClientType } from 'redis';
-import { BadRequestError, UserBannedError, UserNotFoundError } from './auth/errors';
+import { BadRequestError, UserBannedError } from './auth/errors';
 import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
-import { DatabaseInterface } from './db/databaseInterface';
 import { clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
 import { getAndDeleteEmailVerificationCode, isAccessTokenValid, isRefreshTokenValid, setEmailVerificationCode, setRefreshTokenInvalid } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from './types/express';
 import { ProviderData } from './types/provider';
 import { OpenIDUser, User } from './types/user';
+import { OpenIDProvidersConfig, WebauthWizardryConfig } from './types/webauth-wizardry';
 import { hashPassword, randomUrlSafeString } from './utils';
+import { EmailPwConfig, signInController } from './controllers/emailPasswordControllers';
 
 /** Config related to auth tokens and cookies */
 const DEFAULT_COOKIE_CONFIG = {
@@ -28,38 +28,6 @@ const DEFAULT_COOKIE_CONFIG = {
     RTExpiresInSeconds: 3600 * 24 * 7 // 1 week
 }
 
-/** Config related to server */
-type ServerConfig = {
-    serverBaseUrl: string;
-}
-
-
-type WebauthWizardryConfig = {
-    /** Express router */
-    router: Router;
-
-    /** Configuration related to the server */
-    serverConfig: ServerConfig;
-
-    /** Secrets for cookie and jwt management */
-    SECRETS: {
-        COOKIE_PARSER_SECRET: string;
-        JWT_SECRET: string;
-    };
-    /** Override default config for cookies and jwt */
-    cookieConfig?: Partial<typeof DEFAULT_COOKIE_CONFIG>;
-    /** Redis client */
-    redisClient: RedisClientType;
-    /** Database client */
-    dbClient: DatabaseInterface;
-}
-
-type OpenIDProvidersConfig = {
-    stateCookieName: string;
-    nonceCookieName: string;
-    maxAgeTimeoutInSeconds: number;
-}
-
 /** Config related to OpenID authentication */
 const OPENID_PROVIDERS_CONFIG: OpenIDProvidersConfig = {
     /** State cookie when authenticating with an OpenID provider */
@@ -70,15 +38,10 @@ const OPENID_PROVIDERS_CONFIG: OpenIDProvidersConfig = {
     maxAgeTimeoutInSeconds: 60 * 2 // 2 minutes
 }
 
-/** Default email verification code expiration */
-const DEFAULT_EMAIL_VERIFICATION_LINK_EXPIRES_IN_SECONDS: number = 3600 * 24; // 1 day
 
 export class WebauthWizardryForExpress {
 
-    private readonly config: Omit<WebauthWizardryConfig, "cookieConfig" | "serverConfig"> & {
-        cookieConfig: typeof DEFAULT_COOKIE_CONFIG;
-        serverConfig: ServerConfig;
-    };
+    private readonly config: WebauthWizardryConfig;
 
     private get internalSetJwtTokensInCookieMiddleware(): ExpressMiddleware {
         return setJwtTokensInCookieMiddleware(this.config.redisClient, {
@@ -99,7 +62,9 @@ export class WebauthWizardryForExpress {
         });
     }
 
-    constructor(customConfig: WebauthWizardryConfig) {
+    constructor(customConfig: Omit<WebauthWizardryConfig, "cookieConfig"> & {
+        cookieConfig?: Partial<WebauthWizardryConfig["cookieConfig"]>;
+    }) {
         this.config = {
             ...customConfig,
             // Start with default config for cookies, but override if specified from input
@@ -288,47 +253,14 @@ export class WebauthWizardryForExpress {
      * Provides email/pw authentication, along with email verification.
      * This requires to send emails
      */
-    public withEmailPasswordAuth(emailPwConfig: {
-        /** Custom verification code validity in seconds */
-        verificationLinkExpiresInSeconds?: number;
-        /**
-         * Invoked when a certain email address needs to be verified
-         * Must generate a link pointing to an address on FE, that includes the verification code
-         * 
-         * FE must then perform a POST call to email verification endpoint
-         */
-        onEmailVerificationCode: (email: string, code: string) => void | Promise<void>;
-    }): WebauthWizardryForExpress {
+    public withEmailPasswordAuth(emailPwConfig: EmailPwConfig): WebauthWizardryForExpress {
         // Basic authentication is not needed, it might be useful only when needing some automatic browser auth
         // https://stackoverflow.com/questions/8127635/why-should-i-use-http-basic-authentication-instead-of-username-and-password-post
         this.config.router.post('/signin',
             // Signin and signup must be called with no authentication
             assertNoAuthMiddleware(),
-            async (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
-                const { email, password } = req.body;
-
-                if (!email || !password) {
-                    next(new BadRequestError());
-                    return;
-                }
-
-                try {
-                    const user = await this.config.dbClient.getUserByEmailPassword(email, password);
-                    if (!user) {
-                        // Return a generic error
-                        next(new UserNotFoundError());
-                        return;
-                    }
-
-                    req.user = user;
-
-                    next();
-                }
-                catch {
-                    // Return a generic error
-                    next(new UserNotFoundError());
-                }
-            },
+            // Call the controller
+            signInController(this.config),
             // Call the middleware to generate and set the jwt token in cookies
             this.internalSetJwtTokensInCookieMiddleware,
             // Then, OK
@@ -345,96 +277,8 @@ export class WebauthWizardryForExpress {
         this.config.router.post('/signup',
             // Signin and signup must be called with no authentication
             assertNoAuthMiddleware(),
-            async (req: ExtendedRequest, res: ExtendedResponse<string>, next: ExtendedNextFunction) => {
-                const { email, password } = req.body;
 
-                if (!email || !password) {
-                    next(new BadRequestError());
-                    return;
-                }
-
-                // First, check if this email address already exists
-                const userWithSameEmail: User | null = await this.config.dbClient.getUserByEmail(email);
-
-                if (userWithSameEmail) {
-                    // In this case the email already exists. It might be for two reasons: 
-                    // 1 - User has already registered with some other methods (openID providers for example).
-                    //      This implies that no password is set for this user
-                    //      Also, since openID providers MUST provide verified emails, this assumes that that user owns that email
-                    // 2 - Email is already taken. This implies that a password already exists
-
-                    const passwordAlreadySet: boolean = await this.config.dbClient.isPasswordSetForUserId(userWithSameEmail.userId);
-
-                    if (passwordAlreadySet) {
-                        // This is case #2
-
-                        // Return a generic error stating that the email address is not available for some reason
-                        // This has less information disclosure than an explicit "Email already taken"
-                        next(new ExtendedError(400, "Email address not available"));
-                        return;
-                    }
-
-                    // Otherwise, case #1
-
-                    // The provided email needs to be verified before allowing to use this password,
-                    // This solves "what if the user already exists because it has signed in with an OpenID provider?"
-                    // Letting an email/password to merge an already existing user (signed is with another method) would allow anyone to set a custom pw
-                    // and authenticate as any already registered email
-                    //
-                    // The best thing is to only accept verified emails, like for openID signup.
-                    // So this request will not create a user on db, but rather geenerate a verification code,
-                    // saving its temporary data (email/pw) on redis, pointed by the code
-                    //
-                    // The code can be consumed with a POST request.
-                    // Then the right redis entry is recovered and saved on db
-                    // In this way, unverified emails are never saved on db
-
-                    const verificationCode: string = await randomUrlSafeString(20);
-
-                    // Set both the verification code and email/pw data on redis
-                    await setEmailVerificationCode(this.config.redisClient, verificationCode, emailPwConfig.verificationLinkExpiresInSeconds || DEFAULT_EMAIL_VERIFICATION_LINK_EXPIRES_IN_SECONDS, {
-                        mustMergeUser: true,
-                        userIdToMerge: userWithSameEmail.userId,
-                        hashedPw: await hashPassword(password)
-                    });
-
-                    // Invoke the callback. This callback should generate an email to that user
-                    await emailPwConfig.onEmailVerificationCode(email, verificationCode);
-
-                    // Then, send a message
-                    res.status(200).send({
-                        error: null,
-                        data: 'EMAIL_VERIFICATION_STARTED'
-                    });
-                    next();
-                    return;
-                }
-                else {
-                    // Otherwise, no other users exist with the same password
-                    // The step is similar to the # 1 case on the other condition
-                    // The only difference is that the user must not be merged, but instead created as new
-
-                    const verificationCode: string = await randomUrlSafeString(20);
-
-                    // Set both the verification code and email/pw data on redis
-                    await setEmailVerificationCode(this.config.redisClient, verificationCode, emailPwConfig.verificationLinkExpiresInSeconds || DEFAULT_EMAIL_VERIFICATION_LINK_EXPIRES_IN_SECONDS, {
-                        mustMergeUser: false,
-                        email: email,
-                        hashedPw: await hashPassword(password)
-                    });
-
-                    // Invoke the callback. This callback should generate an email to that user
-                    await emailPwConfig.onEmailVerificationCode(email, verificationCode);
-
-                    // Then, send a message
-                    res.status(200).send({
-                        error: null,
-                        data: 'EMAIL_VERIFICATION_STARTED'
-                    });
-                    next();
-                    return;
-                }
-            });
+        );
 
 
         // Register a POST route for email verification
