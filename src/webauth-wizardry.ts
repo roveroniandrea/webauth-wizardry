@@ -129,22 +129,22 @@ export class WebauthWizardryForExpress {
         );
 
         // For every request, extract the jwt payload from the cookies and verify it
+        /*
+    
+            A custom callback is passed in order to allow two things:
+            1 - For an unauthenticated request, check if user can be refreshed via refresh token (checking user validity to be reauthenticated, like for example user not banned)
+            2 - Unauthenticated requests can proceed (except for refresh token banned)
+    
+            This is because some endpoints might not require authentication
+    
+        */
         this.config.router.use((req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
-            /*
-        
-                A custom callback is passed in order to allow two things:
-                1 - For an unauthenticated request, check if user can be refreshed via refresh token (checking user validity to be reauthenticated, like for example user not banned)
-                2 - Unauthenticated requests can proceed (except for refresh token banned)
-        
-                This is because some endpoints might not require authentication
-        
-            */
             passport.authenticate("cookie", { session: false },
                 //
                 // Invoke the right middleware (aka authenticate callback in this case)
                 cookieAuthenticateCallback(this.config, req, res, next)
                 //
-            );
+            )(req, res, next);
         });
     }
 
