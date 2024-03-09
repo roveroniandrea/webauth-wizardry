@@ -288,7 +288,8 @@ export class WebauthWizardryForExpress {
                 this.internalSetJwtTokensInCookieMiddleware,
                 // Then, redirect to homepage
                 (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
-                    // TODO: Check if redirect is done to homepage
+                    // NOTE: Redirect is done relative to current url,
+                    // so this code expects the request to NOT be cross origin
                     res.redirect('/');
 
                     next();
