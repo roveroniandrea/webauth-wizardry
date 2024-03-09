@@ -3,18 +3,17 @@ import cookieParser from 'cookie-parser';
 import { CookieOptions, NextFunction } from 'express';
 import { CallbackParamsType, IdTokenClaims, Issuer, TokenSet, generators } from 'openid-client';
 import passport from 'passport';
-import CookieStrategy from 'passport-cookie';
 import { BadRequestError, UserBannedError } from './auth/errors';
 import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
-import { clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
-import { getAndDeleteEmailVerificationCode, isAccessTokenValid, isRefreshTokenValid, setEmailVerificationCode, setRefreshTokenInvalid } from './redis/redis';
+import { EmailPwConfig, signInController } from './controllers/emailPasswordControllers';
+import { clearAndInvalidateJwtTokens, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
+import { getAndDeleteEmailVerificationCode, isRefreshTokenValid, setRefreshTokenInvalid } from './redis/redis';
 import { ExtendedError, ExtendedNextFunction } from './types/error';
 import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from './types/express';
 import { ProviderData } from './types/provider';
 import { OpenIDUser, User } from './types/user';
 import { OpenIDProvidersConfig, WebauthWizardryConfig } from './types/webauth-wizardry';
-import { hashPassword, randomUrlSafeString } from './utils';
-import { EmailPwConfig, signInController } from './controllers/emailPasswordControllers';
+import { cookieAuthenticateCallback, cookieStrategy } from './auth/cookieStrategy';
 
 /** Config related to auth tokens and cookies */
 const DEFAULT_COOKIE_CONFIG = {
@@ -77,6 +76,18 @@ export class WebauthWizardryForExpress {
         // Body parser allows to populate `req.body`
         this.config.router.use(bodyParser.json());
 
+        // For every request, add some utility headers
+        this.config.router.use((req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
+            // Allow credentials to be passed with "credentials: include" on cross domain request
+            // TODO: Cross origin requests disabled
+            // res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+            // Allow to pass and receive JSON data
+            res.setHeader('Access-Control-Allow-Headers', ['Content-Type', 'Accept'])
+
+            next();
+        });
+
         // Check for secrets
         if (!this.config.SECRETS.COOKIE_PARSER_SECRET || !this.config.SECRETS.JWT_SECRET) {
             throw new Error("Missing configuration");
@@ -108,46 +119,10 @@ export class WebauthWizardryForExpress {
 
     private setupCookieStrategy() {
         // Cookie strategy allows to extract token from cookies
-        passport.use(new CookieStrategy({
-            cookieName: this.config.cookieConfig.ATCookieName,
-            signed: true,
-            passReqToCallback: true
-        }, async (req: Request, token: string, done: (err: ExtendedError | null, user: User | null) => void) => {
-            // If there's a token, decode and extract it
-            // This will never throw an error, just null in case the user cannot be extracted for any reason
-            const decodedAccessToken = await decodeAccessToken(token, this.config.SECRETS.JWT_SECRET);
-
-            // Also, check access token validity
-            const accessTokenValid: boolean = decodedAccessToken ? await isAccessTokenValid(this.config.redisClient, decodedAccessToken.jti) : false;
-
-            // TODO: Optionally, here it can be verified if user is not banned, in order to block every request even before AT expires
-            // However this would increase the number of requests to Redis and introduce some delay on every request
-            const isUserBanned: boolean = (decodedAccessToken?.data?.userId) ? false : false;
-
-            if (isUserBanned) {
-                done(new UserBannedError(), null);
-            }
-            else {
-                // If access token is present and valid, return the user. Otherwise, access token will be cleared later
-                done(null, (decodedAccessToken?.data && accessTokenValid) ? decodedAccessToken.data : null);
-            }
-
-        }));
-
-        // For every request, add some utility headers
-        this.config.router.use((req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
-            // Allow credentials to be passed with "credentials: include" on cross domain request
-            res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-            // Allow to pass and receive JSON data
-            res.setHeader('Access-Control-Allow-Headers', ['Content-Type', 'Accept'])
-
-            next();
-        });
+        passport.use(cookieStrategy(this.config));
 
         // For every request, extract the jwt payload from the cookies and verify it
         this.config.router.use((req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
-
             /*
         
                 A custom callback is passed in order to allow two things:
@@ -157,95 +132,8 @@ export class WebauthWizardryForExpress {
                 This is because some endpoints might not require authentication
         
             */
-            passport.authenticate("cookie", { session: false }, async (err: any, user: User | false | null, info: any, status: any) => {
-                // A custom error can be passed by `done` callback on passport.authenticate
-                // If there's an error, throw it
-                if (err) {
-                    next(err);
-                    return;
-                }
-
-                // For unauthenticated requests (meaning the user cannot be recovered from access token) `user` will be at `false`
-                // TODO: This might be converted into a custom strategy or middleware?
-                if (!user) {
-                    // If for any reason the user cannot be extracted from access token (missing cookie, jwt invalid), try refreshing the session
-                    const oldRefreshToken: string = req.signedCookies[this.config.cookieConfig.RTCookieName];
-
-                    // Decode the extracted refresh token and check its validity
-                    const decodedOldRefreshToken = oldRefreshToken ? await decodeRefreshToken(oldRefreshToken, this.config.SECRETS.JWT_SECRET) : null;
-                    const refreshTokenValid: boolean = decodedOldRefreshToken ? await isRefreshTokenValid(this.config.redisClient, decodedOldRefreshToken.jti) : false;
-
-                    if (decodedOldRefreshToken && refreshTokenValid) {
-                        // If refresh token is valid and thus a userId can be extracted, regenerate both
-
-                        // First, invalidate the current refresh token (AT is already invalid) TODO: Maybe get and delete immedately using redis.getdel()
-                        await setRefreshTokenInvalid(this.config.redisClient, decodedOldRefreshToken.jti)
-
-                        // Then try to reauthenticate
-                        user = await this.config.dbClient.getUserByUserId(decodedOldRefreshToken.sub);
-
-                        // TODO: Check if user is not banned or something else, and throw an error in this case
-                        const isUserBanned: boolean = user ? false : false;
-
-                        if (!user || isUserBanned) {
-                            // If user does not exist or has been banned,
-                            // clear both cookies (refresh token cookie surely exists)
-                            await clearAndInvalidateJwtTokens(this.config.redisClient, req, res, {
-                                jwtSecret: this.config.SECRETS.JWT_SECRET,
-                                ATCookieName: this.config.cookieConfig.ATCookieName,
-                                ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds,
-                                RTCookieName: this.config.cookieConfig.RTCookieName
-                            });
-
-                            if (isUserBanned) {
-                                // Special error if user is banned
-                                next(new UserBannedError());
-                                return;
-                            }
-
-                            // Otherwise, RT was pointing to an inexistent user for some reason
-                            // Return a generic error
-                            next(new BadRequestError());
-                            return;
-                        }
-                    }
-
-                    // Here, the user might have been reauthenticated via refresh token or might be totally unauthenticated because of no refresh token
-                    if (user) {
-                        // If authenticated, set new tokens in cookies
-                        await setJwtTokensInCookies(this.config.redisClient, user, res, {
-                            jwtSecret: this.config.SECRETS.JWT_SECRET,
-                            ATCookieName: this.config.cookieConfig.ATCookieName,
-                            RTCookieName: this.config.cookieConfig.RTCookieName,
-                            ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds,
-                            RTExpiresInSeconds: this.config.cookieConfig.RTExpiresInSeconds
-                        });
-                    }
-                }
-
-                // At this point, if AT was valid, request is authenticated
-                // Otherwise, depends on RT:
-                //      If RT was valid, both tokens have been regenerated and set as cookies, and previous RT was set as invalid
-                //      If RT was not valid or user was banned, both tokens need to be cleared and set as invalid (see below)
-
-                // Proceed with or without the user
-                req.user = user || undefined;
-
-                if (!req.user) {
-                    // If request is not authenticated (for any reason or for any missing/invalid token)
-                    // Proceed to invalidate everything (AT or RT) present in the request
-                    await clearAndInvalidateJwtTokens(this.config.redisClient, req, res, {
-                        jwtSecret: this.config.SECRETS.JWT_SECRET,
-                        ATCookieName: this.config.cookieConfig.ATCookieName,
-                        RTCookieName: this.config.cookieConfig.RTCookieName,
-                        ATExpiresInSeconds: this.config.cookieConfig.ATExpiresInSeconds
-                    });
-                }
-
-                next();
-            })(req, res, next);
+            passport.authenticate("cookie", { session: false }, cookieAuthenticateCallback(this.config, req, res, next));
         });
-
     }
 
 
