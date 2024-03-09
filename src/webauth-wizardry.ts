@@ -15,6 +15,7 @@ import { OpenIDUser, User } from './types/user';
 import { OpenIDProvidersConfig, WebauthWizardryConfig } from './types/webauth-wizardry';
 import { cookieAuthenticateCallback, cookieStrategy } from './strategies/cookieStrategy';
 import { openIdCallbackController, openIdInitAuthenticationController } from './controllers/openIdControllers';
+import helmet from 'helmet';
 
 /** Config related to auth tokens and cookies */
 const DEFAULT_COOKIE_CONFIG = {
@@ -85,10 +86,14 @@ export class WebauthWizardryForExpress {
             // res.setHeader('Access-Control-Allow-Credentials', 'true');
 
             // Allow to pass and receive JSON data
-            res.setHeader('Access-Control-Allow-Headers', ['Content-Type', 'Accept'])
+            res.setHeader('Access-Control-Allow-Headers', ['Content-Type', 'Accept']);
 
             next();
         });
+
+
+        // Use Helmet for setting additional http response header for security
+        this.config.router.use(helmet());
 
         // Check for secrets
         if (!this.config.SECRETS.COOKIE_PARSER_SECRET || !this.config.SECRETS.JWT_SECRET) {
