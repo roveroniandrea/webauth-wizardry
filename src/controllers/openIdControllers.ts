@@ -19,12 +19,26 @@ function calculateCookieNames(provider: ProviderData, openIdProvidersConfig: Ope
 }
 
 
+/** Used to generate the callback urls to wich the OpenID provider will redirect */
+function buildRedirectUri(config: WebauthWizardryConfig, lastPath: string): string {
+    // This function had varius changes. Initially it used req.hostname, but that was wrong for two reasons:
+    // - When allowing cors, this method assumed requests from same origin
+    // - When removed and using a reverse proxy, this method assumed the internal host.docker.internal domain
+    // The Host header can't be used due to reverse proxy, and same for Origin, not because it might be spoofed
+    // (in that case it means the attacker would have just crafted a request with Postman or something, and signin would just fail)
+    // but because it pointed to the FE
+    // 
+    // The easiest solution is to just provide a base url for how the server can be reached
+    return `${config.serverConfig.serverBaseUrl}/${lastPath}`;
+}
+
+
 export function openIdInitAuthenticationController(params: {
+    config: WebauthWizardryConfig;
     provider: ProviderData;
     openIdProvidersConfig: OpenIDProvidersConfig;
     client: BaseClient;
     openIdCookieConfig: CookieOptions;
-    buildRedirectUri: (req: ExtendedRequest, lastPath: string) => string;
 }): ExpressMiddleware {
     return (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => {
 
@@ -43,7 +57,7 @@ export function openIdInitAuthenticationController(params: {
 
 
         // This is the url that Google will redirect after the user has authenticated on its page
-        const redirectUri = params.buildRedirectUri(req, `providers/${params.provider.providerName}/callback`);
+        const redirectUri = buildRedirectUri(params.config, `providers/${params.provider.providerName}/callback`);
 
         // This is the url to which redirect FE, and points to the provider's signin page (like Google "choose an account to login")
         const authUrl = params.client.authorizationUrl({
@@ -88,11 +102,10 @@ export function openIdInitAuthenticationController(params: {
 
 
 export function openIdCallbackController(params: {
+    config: WebauthWizardryConfig;
     provider: ProviderData;
     openIdProvidersConfig: OpenIDProvidersConfig;
     client: BaseClient;
-    buildRedirectUri: (req: ExtendedRequest, lastPath: string) => string;
-    config: WebauthWizardryConfig;
 }): ExpressMiddleware {
     return async (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => {
 
@@ -128,7 +141,7 @@ export function openIdCallbackController(params: {
             // I think this is likely a third check, along with state and nonce, but this time performed by the OpenID provider
             // in fact, passing a different uri, even if allowed in oauth configuration (on google cloud console for example)
             // gives Uncaught OPError OPError: redirect_uri_mismatch
-            const redirectUri = params.buildRedirectUri(req, `providers/${params.provider.providerName}/callback`);
+            const redirectUri = buildRedirectUri(params.config, `providers/${params.provider.providerName}/callback`);
 
             // Now, exchage the "grant code" (which is one-time code)
             // whith a "token id"

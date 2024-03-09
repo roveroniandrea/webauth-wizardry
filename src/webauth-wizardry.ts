@@ -105,20 +105,6 @@ export class WebauthWizardryForExpress {
     }
 
 
-    /** Used to generate the callback urls to wich the OpenID provider will redirect */
-    private buildRedirectUri(req: ExtendedRequest, lastPath: string): string {
-        // This function had varius changes. Initially it used req.hostname, but that was wrong for two reasons:
-        // - When allowing cors, this method assumed requests from same origin
-        // - When removed and using a reverse proxy, this method assumed the internal host.docker.internal domain
-        // The Host header can't be used due to reverse proxy, and same for Origin, not because it might be spoofed
-        // (in that case it means the attacker would have just crafted a request with Postman or something, and signin would just fail)
-        // but because it pointed to the FE
-        // 
-        // The easiest solution is to just provide a base url for how the server can be reached
-        return `${this.config.serverConfig.serverBaseUrl}/${lastPath}`;
-    }
-
-
     private setupCookieStrategy() {
         // Cookie strategy allows to extract token from cookies
         passport.use(
@@ -258,11 +244,11 @@ export class WebauthWizardryForExpress {
                 //
                 // Invoke the right middleware
                 openIdInitAuthenticationController({
+                    config: this.config,
                     client: client,
                     provider: provider,
                     openIdCookieConfig: openIdCookieConfig,
-                    openIdProvidersConfig: openIdProvidersConfig,
-                    buildRedirectUri: this.buildRedirectUri
+                    openIdProvidersConfig: openIdProvidersConfig
                 })
                 //
             );
@@ -277,11 +263,10 @@ export class WebauthWizardryForExpress {
                 //
                 // Invoke the right middleware
                 openIdCallbackController({
+                    config: this.config,
                     client: client,
                     provider: provider,
-                    openIdProvidersConfig: openIdProvidersConfig,
-                    buildRedirectUri: this.buildRedirectUri,
-                    config: this.config
+                    openIdProvidersConfig: openIdProvidersConfig
                 }),
                 //
                 // The next handler will take care of extracting `req.user` and generate AT and RT tokens

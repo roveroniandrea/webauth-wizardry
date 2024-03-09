@@ -97,6 +97,8 @@ app.use((err: Error, req: ExtendedRequest, res: ExtendedResponse, next: Extended
         });
     }
     else {
+        console.error(`Found error:`, err);
+
         res.status(500).send({
             error: "Internal Server Error",
             data: null
