@@ -1,7 +1,6 @@
 import { NextFunction } from 'express';
-import { BadRequestError, UserNotFoundError } from '../auth/errors';
 import { getAndDeleteEmailVerificationCode, setEmailVerificationCode } from '../redis/redis';
-import { ExtendedError, ExtendedNextFunction } from '../types/error';
+import { BadRequestError, ExtendedError, ExtendedNextFunction, UserNotFoundError } from '../types/error';
 import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from '../types/express';
 import { User } from '../types/user';
 import { WebauthWizardryConfig } from '../types/webauth-wizardry';

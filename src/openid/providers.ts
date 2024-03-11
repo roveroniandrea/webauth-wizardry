@@ -1,4 +1,4 @@
-import { Issuer, IssuerMetadata } from 'openid-client';
+import { IssuerMetadata } from 'openid-client';
 
 
 /** Already retrieved metadata about google provider */

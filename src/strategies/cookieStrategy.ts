@@ -1,12 +1,11 @@
+import { AuthenticateCallback, Strategy } from 'passport';
 import CookieStrategy from 'passport-cookie';
-import { Strategy, AuthenticateCallback } from 'passport';
 import { clearAndInvalidateJwtTokens, decodeAccessToken, decodeRefreshToken, setJwtTokensInCookies } from '../jwt/jwt';
 import { isAccessTokenValid, isRefreshTokenValid, setRefreshTokenInvalid } from '../redis/redis';
-import { ExtendedError, ExtendedNextFunction } from '../types/error';
+import { BadRequestError, ExtendedError, ExtendedNextFunction, UserBannedError } from '../types/error';
+import { ExtendedRequest, ExtendedResponse } from '../types/express';
 import { User } from '../types/user';
 import { WebauthWizardryConfig } from '../types/webauth-wizardry';
-import { BadRequestError, UserBannedError } from '../auth/errors';
-import { ExtendedRequest, ExtendedResponse } from '../types/express';
 
 
 export function cookieStrategy(config: WebauthWizardryConfig): Strategy {

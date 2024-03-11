@@ -1,11 +1,10 @@
-import { BaseClient, CallbackParamsType, IdTokenClaims, TokenSet, generators } from 'openid-client';
-import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from '../types/express';
 import { CookieOptions, NextFunction } from 'express';
+import { BaseClient, CallbackParamsType, IdTokenClaims, TokenSet, generators } from 'openid-client';
+import { BadRequestError, ExtendedError } from '../types/error';
+import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from '../types/express';
 import { ProviderData } from '../types/provider';
-import { OpenIDProvidersConfig, WebauthWizardryConfig } from '../types/webauth-wizardry';
-import { BadRequestError } from '../auth/errors';
-import { ExtendedError } from '../types/error';
 import { OpenIDUser, User } from '../types/user';
+import { OpenIDProvidersConfig, WebauthWizardryConfig } from '../types/webauth-wizardry';
 
 
 function calculateCookieNames(provider: ProviderData, openIdProvidersConfig: OpenIDProvidersConfig) {

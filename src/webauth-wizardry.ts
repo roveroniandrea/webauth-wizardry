@@ -1,21 +1,17 @@
 import bodyParser from 'body-parser';
 import cookieParser from 'cookie-parser';
-import { CookieOptions, NextFunction } from 'express';
-import { CallbackParamsType, IdTokenClaims, Issuer, TokenSet, generators } from 'openid-client';
+import { CookieOptions } from 'express';
+import helmet from 'helmet';
+import { Issuer } from 'openid-client';
 import passport from 'passport';
-import { BadRequestError, UserBannedError } from './auth/errors';
 import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
 import { EmailPwConfig, emailVerificationController, signInController, signUpController } from './controllers/emailPasswordControllers';
-import { clearAndInvalidateJwtTokens, decodeRefreshToken, setJwtTokensInCookies } from './jwt/jwt';
-import { getAndDeleteEmailVerificationCode, isRefreshTokenValid, setRefreshTokenInvalid } from './redis/redis';
-import { ExtendedError, ExtendedNextFunction } from './types/error';
+import { openIdCallbackController, openIdInitAuthenticationController } from './controllers/openIdControllers';
+import { cookieAuthenticateCallback, cookieStrategy } from './strategies/cookieStrategy';
+import { ExtendedNextFunction } from './types/error';
 import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from './types/express';
 import { ProviderData } from './types/provider';
-import { OpenIDUser, User } from './types/user';
 import { OpenIDProvidersConfig, WebauthWizardryConfig } from './types/webauth-wizardry';
-import { cookieAuthenticateCallback, cookieStrategy } from './strategies/cookieStrategy';
-import { openIdCallbackController, openIdInitAuthenticationController } from './controllers/openIdControllers';
-import helmet from 'helmet';
 
 /** Config related to auth tokens and cookies */
 const DEFAULT_COOKIE_CONFIG = {

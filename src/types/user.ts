@@ -1,4 +1,3 @@
-import { IdTokenClaims, UserinfoResponse } from 'openid-client';
 
 /** Basic user data. This data will be available in jwt payload */
 export type User = {

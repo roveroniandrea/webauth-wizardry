@@ -1,9 +1,8 @@
 import { RedisClientType } from 'redis';
 import { clearAndInvalidateJwtTokens, setJwtTokensInCookies } from '../jwt/jwt';
-import { ExtendedError, ExtendedNextFunction } from '../types/error';
+import { ExtendedError, ExtendedNextFunction, UnauthorizedError } from '../types/error';
 import { ExpressMiddleware, ExtendedRequest, ExtendedResponse } from '../types/express';
 import { assertAuth } from './auth';
-import { UnauthorizedError } from './errors';
 
 /** 
  * Like `setJwtTokenInCookie` but as a middleware that uses `req.user` as input.
