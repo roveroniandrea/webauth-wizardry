@@ -32,6 +32,11 @@ function buildRedirectUri(config: WebauthWizardryConfig, lastPath: string): stri
 }
 
 
+/** 
+ * Used to start an authentication with an OIDC provider.
+ * 
+ * If succeeded, redirects to the provider's auth page and calls the next middleware
+ */
 export function openIdInitAuthenticationController(params: {
     config: WebauthWizardryConfig;
     provider: ProviderData;
@@ -100,6 +105,11 @@ export function openIdInitAuthenticationController(params: {
 }
 
 
+/**
+ * Callback to which the OIDC provider redirects after authenticating the user.
+ * 
+ * If succeeds, sets `req.user` and calls the next middleware
+ */
 export function openIdCallbackController(params: {
     config: WebauthWizardryConfig;
     provider: ProviderData;

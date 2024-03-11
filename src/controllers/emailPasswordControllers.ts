@@ -24,7 +24,11 @@ export type EmailPwConfig = {
 }
 
 
-
+/**
+ * Handles sign in via email/password.
+ * 
+ * Sets `res.user` for the next middleware, or calls the next middleware with an error
+ */
 export function signInController(config: WebauthWizardryConfig): ExpressMiddleware {
     return async (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
         const { email, password } = req.body;
@@ -54,6 +58,11 @@ export function signInController(config: WebauthWizardryConfig): ExpressMiddlewa
 }
 
 
+/**
+ * Used to create an account with email/password
+ * 
+ * If succeeded, calls the next middleware without any additional infos
+ */
 export function signUpController(config: WebauthWizardryConfig, emailPwConfig: EmailPwConfig): ExpressMiddleware<string> {
     return async (req: ExtendedRequest, res: ExtendedResponse<string>, next: ExtendedNextFunction) => {
         const { email, password } = req.body;
@@ -111,11 +120,7 @@ export function signUpController(config: WebauthWizardryConfig, emailPwConfig: E
             // Invoke the callback. This callback should generate an email to that user
             await emailPwConfig.onEmailVerificationCode(email, verificationCode);
 
-            // Then, send a message
-            res.status(200).send({
-                error: null,
-                data: 'EMAIL_VERIFICATION_STARTED'
-            });
+            // Then, proceed
             next();
             return;
         }
@@ -136,11 +141,7 @@ export function signUpController(config: WebauthWizardryConfig, emailPwConfig: E
             // Invoke the callback. This callback should generate an email to that user
             await emailPwConfig.onEmailVerificationCode(email, verificationCode);
 
-            // Then, send a message
-            res.status(200).send({
-                error: null,
-                data: 'EMAIL_VERIFICATION_STARTED'
-            });
+            // Then, proceed
             next();
             return;
         }
@@ -148,6 +149,11 @@ export function signUpController(config: WebauthWizardryConfig, emailPwConfig: E
 }
 
 
+/** 
+ * Used to verify an email address providing a verification code
+ * 
+ * If succeeded, calls the next middleware (without any user set)
+ */
 export function emailVerificationController(config: WebauthWizardryConfig): ExpressMiddleware {
     return async (req: ExtendedRequest, res: ExtendedResponse, next: NextFunction) => {
 
@@ -184,11 +190,8 @@ export function emailVerificationController(config: WebauthWizardryConfig): Expr
         }
 
 
-        // Operation succeeded, but do not authenticate anything, require a manual authentication to prevent confusing behavior to the user
-        res.status(200).send({
-            error: null,
-            data: null
-        });
+        // Operation succeeded, but do not authenticate anything, require a manual authentication
+        // to prevent confusing behavior to the user
         next();
     }
 }

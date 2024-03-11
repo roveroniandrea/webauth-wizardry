@@ -4,7 +4,7 @@ import { CookieOptions } from 'express';
 import helmet from 'helmet';
 import { Issuer } from 'openid-client';
 import passport from 'passport';
-import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, setJwtTokensInCookieMiddleware } from './auth/middlewares';
+import { assertAuthMiddleware, assertNoAuthMiddleware, clearAndInvalidateJwtTokensMiddleware, sendOkStatus, setJwtTokensInCookieMiddleware } from './auth/middlewares';
 import { EmailPwConfig, emailVerificationController, signInController, signUpController } from './controllers/emailPasswordControllers';
 import { openIdCallbackController, openIdInitAuthenticationController } from './controllers/openIdControllers';
 import { cookieAuthenticateCallback, cookieStrategy } from './strategies/cookieStrategy';
@@ -153,14 +153,8 @@ export class WebauthWizardryForExpress {
             // Call the middleware to generate and set the jwt token in cookies
             this.internalSetJwtTokensInCookieMiddleware,
             // Then, OK
-            (req: ExtendedRequest, res: ExtendedResponse, next: ExtendedNextFunction) => {
-                res.status(200).send({
-                    error: null,
-                    data: null
-                });
-
-                next();
-            }); // Call the middleware to generate and set the jwt token in cookies
+            sendOkStatus()
+        );
 
         // Register a user
         this.config.router.post('/signup',
@@ -168,8 +162,10 @@ export class WebauthWizardryForExpress {
             assertNoAuthMiddleware(),
             //
             // Invoke the right middleware
-            signUpController(this.config, emailPwConfig)
+            signUpController(this.config, emailPwConfig),
             //
+            // Then, return a 200 status
+            sendOkStatus('EMAIL_VERIFICATION_STARTED')
         );
 
 
@@ -183,8 +179,10 @@ export class WebauthWizardryForExpress {
             this.internalClearAndInvalidateJwtTokensMiddleware,
             //
             // Invoke the right middleware
-            emailVerificationController(this.config)
+            emailVerificationController(this.config),
             //
+            // Then, return a 200 status
+            sendOkStatus()
         );
 
 
@@ -292,13 +290,9 @@ export class WebauthWizardryForExpress {
             // Logout must be called with authentication
             assertAuthMiddleware(),
             this.internalClearAndInvalidateJwtTokensMiddleware,
-            (req: ExtendedRequest, res: ExtendedResponse) => {
-                // Jwt tokens have both been invalidated and removed from cookies
-
-                res.status(200).send({
-                    error: null,
-                    data: null
-                });
-            });
+            // Jwt tokens have both been invalidated and removed from cookies
+            // Then, return a 200 status
+            sendOkStatus()
+        );
     }
 }

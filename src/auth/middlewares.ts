@@ -75,3 +75,17 @@ export function clearAndInvalidateJwtTokensMiddleware(redisClient: RedisClientTy
         next();
     }
 }
+
+
+/** Used to send a generic 200 status with optional message */
+export function sendOkStatus(message?: string): ExpressMiddleware<string | null> {
+    return (req: ExtendedRequest, res: ExtendedResponse<string | null>, next: ExtendedNextFunction) => {
+
+        res.status(200).send({
+            error: null,
+            data: message || null
+        })
+
+        next();
+    }
+}
