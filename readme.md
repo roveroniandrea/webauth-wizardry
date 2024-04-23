@@ -29,7 +29,7 @@ NOTE: An additional `rm -rf dist` command is performed before build in order to 
 
 # Testing
 Tests are in `test/` folder. To run them, use `npm run test`.
-This is configured to first build both the src and test folder using `npm run build-test` as pretest task, that builds with `tsconfig.json` file, that includes test folder into the build, in addition with generating .d.ts files and sourcemaps.
+This is configured to first build both the src and test folder using `npm run build-test` as pretest task, in order to build with `tsconfig.json` file that includes test folder into the build, in addition with generating .d.ts files and sourcemaps.
 
 Optionally, you can use the VS Code `Run test` configuration that allows you to use the debugger. This is configured to launch `test/index.spec.ts` file, using `npm: build-test` as pre-launch task.
 
@@ -41,10 +41,12 @@ The npm package is just the src folder. Everything else is used for setting up a
 
 ## Testing with a FE?
 FE is currently on a separate repository. For a complete FE + BE + Redis + Nginx testing, the following configurations are set:
-- FE runs on `http://localhost:5173`, set by Vite config, and calls BE by same origin /api path
+- FE runs on `http://localhost:5173`, set by Vite config, and calls BE by same origin /api path. Note that you might need to use the `--host` flag
 - BE runs on `http://localhost:3000`, set by Express
 - Nginx listend at port `:80` and proxies request both to `:5173` and `/api` to `:3000`
 - Redis listens at port `:6379` and Redis Insight at `8001`
+
+In this case you will need to open http://localhost:80.
 
 ## See dependencies
 To see dependencies between each file, you may run the following command:
